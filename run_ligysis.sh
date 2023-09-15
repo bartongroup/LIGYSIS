@@ -11,7 +11,7 @@
 #$ -e logs/ligysis_pdb/e
 
 # Lookup task-array and cd to job directory to avoid possible tempfile collisions
-UP_ACC=$(sed "${SGE_TASK_ID}q;d" ./input/up_ids.txt)
+UP_ACC=$(sed "${SGE_TASK_ID}q;d" ./input/biolip_up_ids.txt)
 
 dest=./output/${UP_ACC}
 

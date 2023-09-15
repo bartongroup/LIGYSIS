@@ -2,7 +2,6 @@
 ### IMPORTS
 
 import os
-import re
 import sys
 import copy
 import gzip
@@ -19,12 +18,7 @@ import pandas as pd
 import configparser
 from Bio import PDB
 from Bio import AlignIO
-import seaborn as sns
 import scipy.stats as stats
-import matplotlib.pyplot as plt
-
-from color_library import itertools
-from color_library import rgbs
 
 from prointvar.pdbx import PDBXreader, PDBXwriter
 from prointvar.sifts import SIFTSreader
@@ -36,19 +30,19 @@ import varalign.alignments
 from urllib.error import HTTPError
 from urllib.error import URLError
 
+from config import BASE_DIR, INPUT_FOLDER, OUTPUT_FOLDER
 
 ### SETTING UP LOGGER
 
-logging.basicConfig(filename = "ligysis.log", format = '%(asctime)s %(name)s [%(levelname)-8s] - %(message)s', level = logging.DEBUG)
-#logging.basicConfig(level = logging.NOTSET)
-#logging.basicConfig(level= logging.DEBUG)
+logging.basicConfig(filename = "ligysis.log", format = '%(asctime)s %(name)s [%(levelname)-8s] - %(message)s', level = logging.INFO)
 
 log = logging.getLogger("LIGYSIS")
 
 ## READ CONFIG FILE
 
 config = configparser.ConfigParser()
-config.read("./../ligysis_config.txt") # assuming this program is being executed one level above where this script and its config file are located
+config_path = os.path.join(BASE_DIR, "ligysis_config.txt")
+config.read(config_path) # assuming this program is being executed one level above where this script and its config file are located
 
 dssp_bin = config["binaries"].get("dssp_bin")                               # location of DSSP binary.
 clean_pdb_python_bin = config["binaries"].get("clean_pdb_python_bin")       # location of python binary to run clean_pdb.py.
@@ -59,8 +53,8 @@ swissprot = config["dbs"].get("swissprot")                                  # lo
 sifts_db_path = config["dbs"].get("sifts_db_path")                          # location of a local copy of SIFTS. This database might not be updated, current version is Feb 2023.
 sifts_db_path2 = config["dbs"].get("sifts_db_path2")                        # location of a local backup copy of SIFTS. This database might not be updated, current version is Jul 2023.
 ensembl_sqlite_path = config["dbs"].get("ensembl_sqlite")                   # location of a local copy of ENSEMBL mappings from UniProt Accession to genome (sqlite)
-ALL_LIG_DATA_path = config["dbs"].get("all_lig_data")                       # location of table containing molecule type, number of atoms, and frequency of ligands in human structures.
-main_dir = config["setup"].get("main_dir")                                  # location of main directory where all subdirectories will be created.
+#ALL_LIG_DATA_path = config["dbs"].get("all_lig_data")                       # location of table containing molecule type, number of atoms, and frequency of ligands in human structures.
+#main_dir = config["setup"].get("main_dir")                                  # location of main directory where all subdirectories will be created.
 exp_data_dir = config["setup"].get("exp_data_dir")                          # location of directory where experimental data is saved for structures (origin PDBe REST API).
 bound_mols_dir = config["setup"].get("bound_mols_dir")                      # location of directory where bound molcules data is saved for structures (origin PDBe REST API). 
 supp_mats_dir = config["setup"].get("supp_mats_dir")                        # location of directory where superposition data is saved for structures (origin PDBe REST API).
@@ -79,11 +73,12 @@ cons_t_l = float(config["thresholds"].get("cons_t_l"))                      # co
 cons_ts = [cons_t_l, cons_t_h]                                              # groups both thresholds into a list.
 max_retry = int(config["thresholds"].get("max_retry"))                      # number of maximum attempts to make to retrieve a certain piece of data from PDBe API.
 sleep_time = float(config["thresholds"].get("sleep_time"))                  # time to sleep between queries to the PDBe API.
-lig_min_freq = float(config["thresholds"].get("lig_min_freq"))              # minimum ligand frequency in human structures to be considered as ligand of interest (LOI) (inclusive).
-lig_max_freq = float(config["thresholds"].get("lig_max_freq"))              # maximum ligand frequency in human structures to be considered as ligand of interest (LOI) (inclusive).
-lig_min_atoms = int(config["thresholds"].get("lig_min_atoms"))              # minimum ligand number of atoms to be considered as ligand of interest (LOI) (inclusive).
-lig_max_atoms = int(config["thresholds"].get("lig_max_atoms"))              # maximum ligand number of atoms to be considered as ligand of interest (LOI) (inclusive).
-lig_types = config["thresholds"].get("lig_types").split(",")                # molecule types of ligands to be considered ligand of interest (LOI).
+#lig_min_freq = float(config["thresholds"].get("lig_min_freq"))              # minimum ligand frequency in human structures to be considered as ligand of interest (LOI) (inclusive).
+#lig_max_freq = float(config["thresholds"].get("lig_max_freq"))              # maximum ligand frequency in human structures to be considered as ligand of interest (LOI) (inclusive).
+#lig_min_atoms = int(config["thresholds"].get("lig_min_atoms"))              # minimum ligand number of atoms to be considered as ligand of interest (LOI) (inclusive).
+#lig_max_atoms = int(config["thresholds"].get("lig_max_atoms"))              # maximum ligand number of atoms to be considered as ligand of interest (LOI) (inclusive).
+#lig_types = config["thresholds"].get("lig_types").split(",")                # molecule types of ligands to be considered ligand of interest (LOI).
+biolip_data = config["dbs"].get("biolip_data")                       # location of dictionary containing information about ligands in Biolip.
 
 ### LISTS
 
@@ -1331,6 +1326,63 @@ def get_OR(df, variant_col = "variants"):
         df.loc[i, "se_OR"] = round(se_or, 2)
     return df
 
+### COLORS ###
+
+# This code I did not write, I grabbed it from the following URL:
+
+# https://stackoverflow.com/questions/470690/how-to-automatically-generate-n-distinct-colors
+
+import colorsys
+import itertools
+from fractions import Fraction
+from typing import Iterable, Tuple
+
+def zenos_dichotomy() -> Iterable[Fraction]:
+    """
+    http://en.wikipedia.org/wiki/1/2_%2B_1/4_%2B_1/8_%2B_1/16_%2B_%C2%B7_%C2%B7_%C2%B7
+    """
+    for k in itertools.count():
+        yield Fraction(1,2**k)
+
+def fracs() -> Iterable[Fraction]:
+    """
+    [Fraction(0, 1), Fraction(1, 2), Fraction(1, 4), Fraction(3, 4), Fraction(1, 8), Fraction(3, 8), Fraction(5, 8), Fraction(7, 8), Fraction(1, 16), Fraction(3, 16), ...]
+    [0.0, 0.5, 0.25, 0.75, 0.125, 0.375, 0.625, 0.875, 0.0625, 0.1875, ...]
+    """
+    yield Fraction(0)
+    for k in zenos_dichotomy():
+        i = k.denominator # [1,2,4,8,16,...]
+        for j in range(1,i,2):
+            yield Fraction(j,i)
+
+# can be used for the v in hsv to map linear values 0..1 to something that looks equidistant
+# bias = lambda x: (math.sqrt(x/3)/Fraction(2,3)+Fraction(1,3))/Fraction(6,5)
+
+HSVTuple = Tuple[Fraction, Fraction, Fraction]
+RGBTuple = Tuple[float, float, float]
+
+def hue_to_tones(h: Fraction) -> Iterable[HSVTuple]:
+    for s in [Fraction(6,10)]: # optionally use range
+        for v in [Fraction(8,10),Fraction(5,10)]: # could use range too
+            yield (h, s, v) # use bias for v here if you use range
+
+def hsv_to_rgb(x: HSVTuple) -> RGBTuple:
+    return colorsys.hsv_to_rgb(*map(float, x))
+
+flatten = itertools.chain.from_iterable
+
+def hsvs() -> Iterable[HSVTuple]:
+    return flatten(map(hue_to_tones, fracs()))
+
+def rgbs() -> Iterable[RGBTuple]:
+    return map(hsv_to_rgb, hsvs())
+
+def rgb_to_css(x: RGBTuple) -> str:
+    uint8tuple = map(lambda y: int(y*255), x)
+    return "rgb({},{},{})".format(*uint8tuple)
+
+def css_colors() -> Iterable[str]:
+    return map(rgb_to_css, rgbs())
 
 ### EXECUTING CODE
 
@@ -1343,9 +1395,7 @@ if __name__ == '__main__': ### command to run form command line: python3.6 frags
     ### PARSING COMMAND LINE ARGUMENTS
 
     parser = argparse.ArgumentParser(description = "Clusters ligands and defines binding sites.")
-    parser.add_argument("--up_acc", type = str, help = "UniProt accession number of the protein of interest.")
-    parser.add_argument("--up_accs_file", type = str, help = "File containing multiple UniProt accessions.")
-    parser.add_argument("--accs2skip", type = str, help = "File containint multiple Uniprot accessions, and segment IDs to skip")
+    parser.add_argument("up_acc", type = str, help = "UniProt accession number of the protein of interest.")
     parser.add_argument("--override", help = "Override any previously generated files.", action = "store_true")
     parser.add_argument("--override_variants", help = "Override any previously generated files (ONLY VARIANTS SECTION).", action = "store_true")
     parser.add_argument("--transform", help = "Cleans, transforms, and simplifies structures.", action = "store_true")
@@ -1355,8 +1405,6 @@ if __name__ == '__main__': ### command to run form command line: python3.6 frags
     args = parser.parse_args()
 
     acc = args.up_acc
-    accs_file = args.up_accs_file
-    skip_file = args.accs2skip
     override = args.override
     override_variants = args.override_variants
     run_transform = args.transform
@@ -1366,841 +1414,746 @@ if __name__ == '__main__': ### command to run form command line: python3.6 frags
     for arg, value in sorted(vars(args).items()):
         log.info("Argument %s: %r", arg, value)
 
-    ### PROCESSING INPUT. CREATING LIST WITH EITHER --up_acc or --up_accs_file
-
-    if acc:
-        acc_list = [acc, ]
-    elif accs_file:
-        accs_file_path = os.path.join(main_dir, accs_file)
-        with open(accs_file_path, "rb") as f:
-            acc_list = pickle.load(f)
-
-    else:
-        log.critical("Either a UniProt accession, or a file containing accessions is needed as input")
-        log.info("Exiting programme abruptly")
-        sys.exit(0)
-
-    ### PROCESSING SKIP FILE: CONTAINS ACCESSIONS TO SKIP AND NOT RUN THE PIPELINE ON
-
-    if skip_file:
-        skip_file_path = os.path.join(main_dir, skip_file)
-        accs_codes, segs_codes = get_status_code_data(skip_file_path)
-        log.info("Skip file contains data about {} accessions and {} segments".format(str(len(accs_codes)), str(len(segs_codes))))
-
-    n_accs = len(acc_list)
-    log.info("Input file contains {} UniProt accessions".format(str(n_accs)))
-
     ### OBTAINING RELEVANT LIGS ACCORDING TO CONFIG FILE ###
 
-    ALL_LIG_DATA = pd.read_csv(ALL_LIG_DATA_path, index_col = 0) # had to change to csv because of pickle issue
+    #ALL_LIG_DATA = pd.read_csv(ALL_LIG_DATA_path, index_col = 0) # had to change to csv because of pickle issue
 
-    if lig_max_freq == -1.0:
-        lig_max_freq = ALL_LIG_DATA.freq.max()
-    if lig_min_freq == -1.0:
-        lig_min_freq = ALL_LIG_DATA.freq.min()
-    if lig_max_atoms == -1:
-        lig_max_atoms = ALL_LIG_DATA.n_atoms.max()
-    if lig_min_atoms == -1:
-        lig_min_atoms = ALL_LIG_DATA.n_atoms.min()
-    if lig_types == "":
-        lig_types = sorted(ALL_LIG_DATA.type.unique().tolist())
+    #if lig_max_freq == -1.0:
+    #    lig_max_freq = ALL_LIG_DATA.freq.max()
+    #if lig_min_freq == -1.0:
+    #    lig_min_freq = ALL_LIG_DATA.freq.min()
+    #if lig_max_atoms == -1:
+    #    lig_max_atoms = ALL_LIG_DATA.n_atoms.max()
+    #if lig_min_atoms == -1:
+    #    lig_min_atoms = ALL_LIG_DATA.n_atoms.min()
+    #if lig_types == "":
+    #    lig_types = sorted(ALL_LIG_DATA.type.unique().tolist())
 
-    relevant_ligs = ALL_LIG_DATA.query('(@lig_min_atoms <= n_atoms <= @lig_max_atoms) & (@lig_min_freq <= freq <= @lig_max_freq) & (type in @lig_types)').index.tolist()
+    #relevant_ligs = ALL_LIG_DATA.query('(@lig_min_atoms <= n_atoms <= @lig_max_atoms) & (@lig_min_freq <= freq <= @lig_max_freq) & (type in @lig_types)').index.tolist()
 
-    log.info("LOI frequencies = [{}, {}]".format(str(lig_min_freq), str(lig_max_freq)))
-    log.info("LOI number of atoms = [{}, {}]".format(str(lig_min_atoms), str(lig_max_atoms)))
-    log.info("LOI molecule types = {}".format(lig_types))
-    log.info("There is a total of {} relevant ligands".format(str(len(relevant_ligs))))
+    #log.info("LOI frequencies = [{}, {}]".format(str(lig_min_freq), str(lig_max_freq)))
+    #log.info("LOI number of atoms = [{}, {}]".format(str(lig_min_atoms), str(lig_max_atoms)))
+    #log.info("LOI molecule types = {}".format(lig_types))
+    #log.info("There is a total of {} relevant ligands".format(str(len(relevant_ligs))))
 
-    ### STARTING LOOPING THROUGH ALL INPUT UNIPROT ACCESSIONS
+    ### RETRIEVES ALL SUPERPOSITION MATRICES FOR PDB IDS IN acc, EXCEPT IF THERE ARE NOT ANY SOLVED STRUCTURES
 
-    for i_acc, acc in enumerate(acc_list):
+    supp_mat_out = os.path.join(supp_mats_dir, "{}_supp_mat.json".format(acc)) # had to change to json because of pickle issue
+    if os.path.isfile(supp_mat_out):
+        matrices_df = pd.read_json(supp_mat_out, convert_axes = False, dtype = False)
+        log.info("Matrix table was read for {} and contains {} chains".format(acc, str(len(matrices_df))))
+    else:
+        try:
+            matrices_df = pd.read_json("http://ftp.ebi.ac.uk/pub/databases/pdbe-kb/superposition/{}/{}/{}.json".format(acc[0], acc, acc), convert_axes = False, dtype = False).T
+            matrices_df.to_json(supp_mat_out)
+            log.info("Matrix table contains data from {} chains for {}".format(str(len(matrices_df)), acc))
+        except HTTPError as e:
+            log.warning("No structures solved for {}. Exiting programme".format(acc))
+            print("{}\t{}".format(acc, str(15)), flush = True)
+            sys.exit(0)
 
-        log.info("Starting to process UniProt accession {}/{}: {}".format(str(i_acc+1), str(n_accs), acc))
+    ### RETRIEVES ALL LIGAND-BINDING PDB IDS FOR acc, EXCEPT IF THERE ARE NOT ANY LIGAND-BINDING STRUCTURES
 
-        ### IF THERE IS A SKIP FILE, CHECKS AND PRINTS ACC EXIT CODES TO STDOUT
+    biolip_dict = load_pickle(biolip_data)
+    try:
+        all_ligs_pdbs = list(biolip_dict[acc].keys()) # NOW DONE WITH BIOLIP
+        n_all_ligs_pdbs = len(all_ligs_pdbs)
+        log.info("There are {} ligand-binding structures for {}".format(str(n_all_ligs_pdbs), acc))
+    except KeyError as e:
+        log.warning("No ligand-binding structures for {}. Exiting programme".format(acc))
+        print("{}\t{}".format(acc, str(16)), flush = True)
+        sys.exit(0)
 
-        if skip_file:
-            if acc in accs_codes:
-                code = accs_codes[acc]
-                print("{}\t{}".format(acc, code), flush = True)
-                if code == "15":
-                    log.info("{} has no structures solved".format(acc))
-                elif code == "16":
-                    log.info("{} has no ligand-binding structures".format(acc))
-                elif code == "17":
-                    log.info("{} failed to retrieve superposition data".format(acc))
+
+    #lig_pdbs_out = os.path.join(ligand_pdbs_dir, "{}_lig_pdbs.pkl".format(acc)) # generated here, so it is fine
+    #if os.path.isfile(lig_pdbs_out):
+    #    all_ligs_pdbs = load_pickle(lig_pdbs_out)
+    #else:
+    #    try:
+    #        all_ligs_pdbs = get_lig_pdbs(acc) # ALL PDBs THAT CONTAIN LIGANDS BOUND TO THEM
+    #        dump_pickle(all_ligs_pdbs, lig_pdbs_out)
+    #        n_all_ligs_pdbs = len(all_ligs_pdbs)
+    #        log.info("There are {} ligand-binding structures for {}".format(str(n_all_ligs_pdbs), acc))
+    #    except HTTPError as e:
+    #        log.warning("{} does not present any bound ligands. Exiting programme".format(acc))
+    #        print("{}\t{}".format(acc, str(16)), flush = True)
+    #        sys.exit()
+
+    ### CREATES WORKING DIRECTORY FOR acc
+
+    wd = os.path.join(OUTPUT_FOLDER, acc)
+
+    if not os.path.isdir(wd):
+        os.mkdir(wd)
+
+    ### READING SUPERPOSITION DATA FROM GRAPH-API. CONTAINS INFO ABOUT SEGMENTS.
+
+    segment_data_out = os.path.join(segment_data_dir, "{}_segments.json".format(acc)) # had to change to json because of pickle issue
+    if os.path.isfile(segment_data_out):
+        supp_data = pd.read_json(segment_data_out, convert_axes = False, dtype = False)
+        log.info("Segment data is being read from json file")
+    else:
+        try:
+            supp_data = pd.read_json("https://www.ebi.ac.uk/pdbe/graph-api/uniprot/superposition/{}".format(acc), convert_axes = False, dtype = False)
+            log.info("Segment data is being read from API")
+            supp_data.to_json(segment_data_out)
+        except HTTPError as e:
+            log.warning("Superposition data could not be obtained from GRAPH-API for {}. Exiting programme".format(acc))
+            print("{}\t{}".format(acc, str(17)), flush = True)
+            sys.exit()
+
+    supp_data.index = range(1, len(supp_data)+1)
+    segments = supp_data.index.tolist()
+    n_segments = len(supp_data)
+    log.info("{} presents {} different structure coverage segments".format(acc, n_segments))
+
+    segment_data = get_segments_dict(supp_data, acc)
+    segment_chains = get_segment_membership(supp_data, acc)
+    segment_pdbs = {k: list(set([vv.split("_")[0] for vv in v])) for k, v in segment_chains.items()}
+
+    ### STARTING LOOPING THROUGH ALL PROTEIN SEGMENTS
+
+    for segment in segments:
+
+        seg_id = "{}_{}".format(acc, str(segment))
+
+        try:
+
+            ### CREATES SEGMENT DIRECTORY, AND SUBDIRECTORIES
+
+            segment_dir = os.path.join(wd, str(segment))
+            raw_dir = os.path.join(segment_dir, "raw")
+            clean_dir = os.path.join(segment_dir, "clean")
+            trans_dir = os.path.join(segment_dir, "trans")
+            simple_dir = os.path.join(segment_dir, "simple")
+            fps_dir = os.path.join(segment_dir, "fingerprints")
+            dssp_dir = os.path.join(segment_dir, "dssp")
+            variants_dir = os.path.join(segment_dir, "variants")
+            results_dir = os.path.join(segment_dir, "results")
+
+            dirs = [
+                segment_dir, raw_dir, clean_dir, trans_dir,
+                simple_dir, fps_dir, dssp_dir,
+                variants_dir, results_dir,
+            ]
+            
+            for dirr in dirs:
+                if not os.path.isdir(dirr):
+                    os.mkdir(dirr)
+
+            ### CHECKS IF FINAL RESULTS TABLE EXISTS, AND IF SO, SKIPS TO NEXT SEGMENT
+
+            final_table_out = os.path.join(results_dir, "{}_{}_results_table.pkl".format(acc, str(segment)))
+            if os.path.isfile(final_table_out) and not override:
+                print("{}\t{}".format(seg_id, str(0)), flush = True)
+                log.info("Results available for Segment {} of {}".format(str(segment), acc))
                 continue
 
-        ### RETRIEVES ALL SUPERPOSITION MATRICES FOR PDB IDS IN acc, EXCEPT IF THERE ARE NOT ANY SOLVED STRUCTURES
+            log.info("Starting to process Segment {} of {}".format(str(segment), acc))
 
-        supp_mat_out = os.path.join(supp_mats_dir, "{}_supp_mat.json".format(acc)) # had to change to json because of pickle issue
-        if os.path.isfile(supp_mat_out):
-            matrices_df = pd.read_json(supp_mat_out, convert_axes = False, dtype = False)
-            log.info("Matrix table was read for {} and contains {} chains".format(acc, str(len(matrices_df))))
-        else:
-            try:
-                matrices_df = pd.read_json("http://ftp.ebi.ac.uk/pub/databases/pdbe-kb/superposition/{}/{}/{}.json".format(acc[0], acc, acc), convert_axes = False, dtype = False).T
-                matrices_df.to_json(supp_mat_out)
-                log.info("Matrix table contains data from {} chains for {}".format(str(len(matrices_df)), acc))
-            except HTTPError as e:
-                log.warning("No structures solved for {}. Exiting programme".format(acc))
-                print("{}\t{}".format(acc, str(15)), flush = True)
+            segment_df = matrices_df.query('index in @segment_chains[@segment]') # subsets matrices_df to select segment rows
+
+            if len(segment_df) == 0: # happened for 8au0 of O94901. Brand new of 19/07/2023.
+                log.warning("Segment {} of {} presents no chains in supp data".format(str(segment), acc))
+                print("{}\t{}".format(seg_id, str(18)), flush = True)
                 continue
 
-        ### RETRIEVES ALL LIGAND-BINDING PDB IDS FOR acc, EXCEPT IF THERE ARE NOT ANY LIGAND-BINDING STRUCTURES
-        lig_pdbs_out = os.path.join(ligand_pdbs_dir, "{}_lig_pdbs.pkl".format(acc)) # generated here, so it is fine
-        if os.path.isfile(lig_pdbs_out):
-            all_ligs_pdbs = load_pickle(lig_pdbs_out)
-        else:
-            try:
-                all_ligs_pdbs = get_lig_pdbs(acc) # ALL PDBs THAT CONTAIN LIGANDS BOUND TO THEM
-                dump_pickle(all_ligs_pdbs, lig_pdbs_out)
-                n_all_ligs_pdbs = len(all_ligs_pdbs)
-                log.info("There are {} ligand-binding structures for {}".format(str(n_all_ligs_pdbs), acc))
-            except HTTPError as e:
-                log.warning("{} does not present any bound ligands. Exiting programme".format(acc))
-                print("{}\t{}".format(acc, str(16)), flush = True)
-                continue
+            log.info("Segment {} of {} presents {} chains".format(str(segment), acc, str(len(segment_df))))
 
-        ### CREATES WORKING DIRECTORY FOR acc
+            pdb_ids = segment_df.pdb_id.tolist()
 
-        wd = os.path.join(main_dir, acc + "_pdbe")
+            pdb_ids = [pdb_id for pdb_id in pdb_ids if pdb_id in all_ligs_pdbs] # filters out pdb_ids that do not present BioLiP-defined LOIs
 
-        if not os.path.isdir(wd):
-                os.mkdir(wd)
+            pdb_files = [os.path.join(pdb_db_path, pdb_id[1:3], "pdb{}.ent.gz".format(pdb_id)) for pdb_id in pdb_ids]
 
-        ### READING SUPERPOSITION DATA FROM GRAPH-API. CONTAINS INFO ABOUT SEGMENTS.
+            if run_experimental:
 
-        segment_data_out = os.path.join(segment_data_dir, "{}_segments.json".format(acc)) # had to change to json because of pickle issue
-        if os.path.isfile(segment_data_out):
-            supp_data = pd.read_json(segment_data_out, convert_axes = False, dtype = False)
-            log.info("Segment data is being read from json file")
-        else:
-            try:
-                supp_data = pd.read_json("https://www.ebi.ac.uk/pdbe/graph-api/uniprot/superposition/{}".format(acc), convert_axes = False, dtype = False)
-                log.info("Segment data is being read from API")
-                supp_data.to_json(segment_data_out)
-            except HTTPError as e:
-                log.warning("Superposition data could not be obtained from GRAPH-API for {}. Exiting programme".format(acc))
-                print("{}\t{}".format(acc, str(17)), flush = True)
-                continue
+                ### GETTING EXPERIMENTAL DATA FROM ALL STRUCTURES
 
-        #supp_data.index = supp_data.index + 1 # OLD
-        supp_data.index = range(1, len(supp_data)+1) # NEW
-        segments = supp_data.index.tolist()
-        n_segments = len(supp_data)
-        log.info("{} presents {} different structure coverage segments".format(acc, n_segments))
+                experimental_out = os.path.join(results_dir, "{}_{}_strs_exp.pkl".format(acc, str(segment)))
 
-        segment_data = get_segments_dict(supp_data, acc)
-        segment_chains = get_segment_membership(supp_data, acc)
-        segment_pdbs = {k: list(set([vv.split("_")[0] for vv in v])) for k, v in segment_chains.items()}
+                if override or not os.path.isfile(experimental_out):
+                    exp_data_df = get_experimental_data(pdb_ids, exp_data_dir, experimental_out)
+                    log.info("Obtained experimental data")
+                else:
+                    
+                    exp_data_df = pd.read_pickle(experimental_out)
+                    log.debug("Loaded experimental data")
+                    pass
+                log.info("Experimental data processed for Segment {} of {}".format(str(segment), acc))
 
-        ### STARTING LOOPING THROUGH ALL PROTEIN SEGMENTS
+            ### FILTERS OUT PDB IDS, AND FILES THAT ARE NOT FOUND IN LOCAL DATABASE
 
-        for segment in segments:
-
-            seg_id = "{}_{}".format(acc, str(segment))
-
-            ### IF THERE IS A SKIP FILE, CHECKS AND PRINTS SEGMENT EXIT CODES TO STDOUT
-
-            if skip_file:
-                if seg_id in segs_codes:
-                    seg_code = segs_codes[seg_id]
-                    print("{}\t{}".format(seg_id, seg_code), flush = True)
-                    if seg_code == "0":
-                        log.info("Segment {} finished correctly".format(seg_id))
-                    elif seg_code == "1":
-                        log.info("Segment {} failed with unknown error".format(seg_id))
-                    elif seg_code == "2":
-                        log.info("Segment {} does not present any structures in local DB".format(seg_id))
-                    elif seg_code == "3":
-                        log.info("Segment {} presents no EXP_DATA columns in table".format(seg_id))
-                    elif seg_code == "4":
-                        log.info("Segment {} presents no quality structures".format(seg_id))
-                    elif seg_code == "5":
-                        log.info("Segment {} presents no ligand-binding structures".format(seg_id))
-                    elif seg_code == "6":
-                        log.info("Segment {} presents no fingerprints for unknown reasons".format(seg_id))
-                    elif seg_code == "7":
-                        log.info("Segment {} presents no interactions with target protein chains".format(seg_id))
-                    elif seg_code == "8":
-                        log.info("Segment {} presents no relevant ligands".format(seg_id))
-                    elif seg_code == "9":
-                        log.info("Segment {} presents no interactions with target protein atoms".format(seg_id))
-                    elif seg_code == "10":
-                        log.info("Segment {} presents no fingerprints with SIFTS mappings".format(seg_id))
-                    elif seg_code == "11":
-                        log.info("Segment {} presents no sequences in MSA".format(seg_id))
-                    elif seg_code == "12":
-                        log.info("Segment {} presents no variants mapping to MSA".format(seg_id))
-                    elif seg_code == "13":
-                        log.info("Segment {} presents no missense variants".format(seg_id))
-                    elif seg_code == "14":
-                        log.info("Segment {} presents no human homologues in MSA".format(seg_id))
-                    elif seg_code == "18":
-                        log.info("Segment {} presents no segment chains".format(seg_id)) # disagreement between FTP supp mat data and API segment data
-                    continue
-
-            try:
-
-                ### CREATES SEGMENT DIRECTORY, AND SUBDIRECTORIES
-
-                segment_dir = os.path.join(wd, str(segment))
-                raw_dir = os.path.join(segment_dir, "raw")
-                clean_dir = os.path.join(segment_dir, "clean")
-                trans_dir = os.path.join(segment_dir, "trans")
-                simple_dir = os.path.join(segment_dir, "simple")
-                fps_dir = os.path.join(segment_dir, "fingerprints")
-                #exp_data_dir = os.path.join(segment_dir, "exp_data") # replace here by external dir, where all is already downloaded
-                #bound_mols_dir = comes from config now
-                dssp_dir = os.path.join(segment_dir, "dssp")
-                variants_dir = os.path.join(segment_dir, "variants")
-                results_dir = os.path.join(segment_dir, "results")
-
-                dirs = [
-                    segment_dir, raw_dir, clean_dir, trans_dir,
-                    simple_dir, fps_dir, dssp_dir,
-                    variants_dir, results_dir, #exp_data_dir
-                ]
-                
-                for dirr in dirs:
-                    if not os.path.isdir(dirr):
-                        os.mkdir(dirr)
-
-                ### CHECKS IF FINAL RESULTS TABLE EXISTS, AND IF SO, SKIPS TO NEXT SEGMENT
-
-                final_table_out = os.path.join(results_dir, "{}_{}_results_table.pkl".format(acc, str(segment)))
-                if os.path.isfile(final_table_out) and not override:
-                    print("{}\t{}".format(seg_id, str(0)), flush = True)
-                    log.info("Results available for Segment {} of {}".format(str(segment), acc))
-                    continue
-
-                log.info("Starting to process Segment {} of {}".format(str(segment), acc))
-
-                segment_df = matrices_df.query('index in @segment_chains[@segment]') # subsets matrices_df to select segment rows
-
-                if len(segment_df) == 0: # happened for 8au0 of O94901. Brand new of 19/07/2023.
-                    log.warning("Segment {} of {} presents no chains in supp data".format(str(segment), acc))
-                    print("{}\t{}".format(seg_id, str(18)), flush = True)
-                    continue
-
-                log.info("Segment {} of {} presents {} chains".format(str(segment), acc, str(len(segment_df))))
-
-                pdb_ids = segment_df.pdb_id.tolist()
-
-                pdb_files = [os.path.join(pdb_db_path, pdb_id[1:3], "pdb{}.ent.gz".format(pdb_id)) for pdb_id in pdb_ids]
-
-                if run_experimental:
-
-                    ### GETTING EXPERIMENTAL DATA FROM ALL STRUCTURES
-
-                    experimental_out = os.path.join(results_dir, "{}_{}_strs_exp.pkl".format(acc, str(segment)))
-
-                    if override or not os.path.isfile(experimental_out):
-                        exp_data_df = get_experimental_data(pdb_ids, exp_data_dir, experimental_out)
-                        #log.info("Experimental data downloaded and saved")
-                    else:
-                        #log.info("Experimental data already saved")
-                        exp_data_df = pd.read_pickle(experimental_out)
-                        pass
-                    log.info("Experimental data processed for Segment {} of {}".format(str(segment), acc))
-
-                ### FILTERS OUT PDB IDS, AND FILES THAT ARE NOT FOUND IN LOCAL DATABASE
-
-                files2remove, ids2remove = [[], []]
-                for i, pdb_file in enumerate(pdb_files):
-                    try:
-                        assert os.path.isfile(pdb_file)
-                    except AssertionError as e:
-                        log.error("{} was not found in local database".format(pdb_ids[i]))
-                        files2remove.append(pdb_file) # saving pdbs not in database so they are removed later. removing whilst for loop is not a good idea
-                        ids2remove.append(pdb_ids[i])
-                        
-                pdb_ids = [pdb_id for pdb_id in pdb_ids if pdb_id not in ids2remove]
-                pdb_files = [pdb_file for pdb_file in pdb_files if pdb_file not in files2remove]
-
-                if len(pdb_files) == 0:
-                    log.error("None of the structures for Segment {} of {} are present in local database".format(str(segment), acc)) #this is actually a segment EC
-                    print("{}\t{}".format(seg_id, str(2)), flush = True)
-                    continue
-
-                ### NEW FROM 07/2023 FILTERS OUT PDB IDS THAT DO NOT MEET CRITERION: X-RAY AND RESOLUTION < 2.5
-
-                if "experimental_method" not in exp_data_df or "resolution" not in exp_data_df:
-                    log.warning("Medhod or resolution missing. No quality structures returned.")
-                    print("{}\t{}".format(seg_id, str(3)), flush = True)
-                    continue
-
-                good_pdbs = exp_data_df.query('experimental_method == "X-ray diffraction" & resolution < 2.5').pdb_id.tolist()
-
-                if good_pdbs == []:
-                    log.warning("None of the structures meet quality threshold for Segment {} of {}".format(str(segment), acc))
-                    print("{}\t{}".format(seg_id, str(4)), flush = True)
-                    continue
-
-                files2remove, ids2remove = [[], []] # now because of exp method and resolution
-                for i, pdb_id in enumerate(pdb_ids):
-                    if pdb_id not in good_pdbs:
-                        log.warning("{} did not meet quality standards".format(pdb_id))
-                        files2remove.append(pdb_files[i]) # saving pdbs not meeting QC so they are removed later. removing whilst for loop is not a good idea
-                        ids2remove.append(pdb_id)
-
-                pdb_ids = [pdb_id for pdb_id in pdb_ids if pdb_id not in ids2remove] # now only X-ray res<2.5 are kept
-                pdb_files = [pdb_file for pdb_file in pdb_files if pdb_file not in files2remove] # now only X-ray res<2.5 are kept
-
-                log.info("Segment {} of {} presents {} high quality chains".format(str(segment), acc, str(len(pdb_files))))
-                
-                ### CHECKING AMOUNT OF PDB FILES AND PDB IDS ARE THE SAME
-
+            files2remove, ids2remove = [[], []]
+            for i, pdb_file in enumerate(pdb_files):
                 try:
-                    assert len(pdb_ids) == len(pdb_files)
-                    #log.info("CORRECT ASSERTION: number of pdb ids equal to files for Segment {} of {}".format(str(segment), acc))
+                    assert os.path.isfile(pdb_file)
                 except AssertionError as e:
-                    log.critical("Number of pdb ids ({}) not equal to pdb_files ({}) for Segment {} of {}".format(str(len(pdb_ids)), str(len(pdb_files)), str(segment), acc))
+                    log.error("{} was not found in local database".format(pdb_ids[i]))
+                    files2remove.append(pdb_file) # saving pdbs not in database so they are removed later. removing whilst for loop is not a good idea
+                    ids2remove.append(pdb_ids[i])
+                    
+            pdb_ids = [pdb_id for pdb_id in pdb_ids if pdb_id not in ids2remove]
+            pdb_files = [pdb_file for pdb_file in pdb_files if pdb_file not in files2remove]
 
-                segment_df = segment_df.query('pdb_id in @pdb_ids') # filtering segment dataframe, so it only includes transformation data of those tructures present in local copy of PDB
-                matrices = segment_df.matrix.tolist()
-                chains = segment_df.auth_asym_id.tolist()
+            if len(pdb_files) == 0:
+                log.error("None of the structures for Segment {} of {} are present in local database".format(str(segment), acc)) #this is actually a segment EC
+                print("{}\t{}".format(seg_id, str(2)), flush = True)
+                continue
 
-                ### CHECKING PDB IDS AGREE WITH SEGMENT DF PDB IDS
+            ### NEW FROM 07/2023 FILTERS OUT PDB IDS THAT DO NOT MEET CRITERION: X-RAY AND RESOLUTION < 2.5
 
-                try:
-                    assert sorted(pdb_ids) == sorted(segment_df.pdb_id.tolist())
-                    #log.info("CORRECT ASSERTION: filtered PDBs equal to those from Segment dataframe for Segment {} of {}".format(str(segment), acc))
-                except AssertionError as e:
-                    log.critical("Filtered PDBs do not agree with those from Segment dataframe for Segment {} of {}".format(str(segment), acc))
+            # if "experimental_method" not in exp_data_df or "resolution" not in exp_data_df:
+            #     log.warning("Medhod or resolution missing. No quality structures returned.")
+            #     print("{}\t{}".format(seg_id, str(3)), flush = True)
+            #     continue
+
+            # good_pdbs = exp_data_df.query('experimental_method == "X-ray diffraction" & resolution < 2.5').pdb_id.tolist()
+
+            # if good_pdbs == []:
+            #     log.warning("None of the structures meet quality threshold for Segment {} of {}".format(str(segment), acc))
+            #     print("{}\t{}".format(seg_id, str(4)), flush = True)
+            #     continue
+
+            # files2remove, ids2remove = [[], []] # now because of exp method and resolution
+            # for i, pdb_id in enumerate(pdb_ids):
+            #     if pdb_id not in good_pdbs:
+            #         log.warning("{} did not meet quality standards".format(pdb_id))
+            #         files2remove.append(pdb_files[i]) # saving pdbs not meeting QC so they are removed later. removing whilst for loop is not a good idea
+            #         ids2remove.append(pdb_id)
+
+            # pdb_ids = [pdb_id for pdb_id in pdb_ids if pdb_id not in ids2remove] # now only X-ray res<2.5 are kept
+            # pdb_files = [pdb_file for pdb_file in pdb_files if pdb_file not in files2remove] # now only X-ray res<2.5 are kept
+
+            # log.info("Segment {} of {} presents {} high quality chains".format(str(segment), acc, str(len(pdb_files))))
+            
+            ### CHECKING AMOUNT OF PDB FILES AND PDB IDS ARE THE SAME
+
+            try:
+                assert len(pdb_ids) == len(pdb_files)
+            except AssertionError as e:
+                log.critical("Number of pdb ids ({}) not equal to pdb_files ({}) for Segment {} of {}".format(str(len(pdb_ids)), str(len(pdb_files)), str(segment), acc))
+
+            segment_df = segment_df.query('pdb_id in @pdb_ids') # filtering segment dataframe, so it only includes transformation data of those tructures present in local copy of PDB
+            matrices = segment_df.matrix.tolist()
+            chains = segment_df.auth_asym_id.tolist()
+
+            ### CHECKING PDB IDS AGREE WITH SEGMENT DF PDB IDS
+
+            try:
+                assert sorted(pdb_ids) == sorted(segment_df.pdb_id.tolist())
+            except AssertionError as e:
+                log.critical("Filtered PDBs do not agree with those from Segment dataframe for Segment {} of {}".format(str(segment), acc))
+                continue
+
+            try:
+                assert segment_df.pdb_id.tolist() == [pdb_file.split("/")[-1][3:7] for pdb_file in pdb_files]
+            except AssertionError as e:
+                log.critical("PDB file IDs do not agree with those from Segment dataframe for Segment {} of {}".format(str(segment), acc))
+                continue 
+
+            ### OBTAINING PROTEIN-LIGAND FINGERPRINTS
+            
+            fps_out = os.path.join(results_dir, "{}_{}_ligs_fingerprints.pkl".format(acc, str(segment))) #fps: will stand for fingerprints. update with main_dir and so on.
+            pdb_set = segment_pdbs[segment]
+            log.info("There are {} unique PDBs for Segment {} of {}".format(str(len(pdb_set)), str(segment), acc))
+            all_ligs_pdbs_segment = [pdb for pdb in all_ligs_pdbs if pdb in pdb_set] # filtering pdbs so only data about segment is retrieved
+            log.info("There are {} unique ligand-binding PDBs for Segment {} of {}".format(str(len(all_ligs_pdbs_segment)), str(segment), acc))
+
+            if override or not os.path.isfile(fps_out):
+                if all_ligs_pdbs_segment == []:
+                    print("{}\t{}".format(seg_id, str(5)), flush = True)
+                    log.warning("Segment {} of {} does not present any ligand-binding structures".format(str(segment), acc))
                     continue
+                else:
+                    lig_fps = get_fingerprints_dict(acc, fps_dir, fps_out, all_ligs_pdbs_segment, segment_chains[segment], bound_mols_dir, bound_mol_inters_dir) # GETS ALL LIGAND FINGERPRINTS FROM LIG-BOUND CONTAINING PDBS
+            else:
+                with open(fps_out, "rb") as f:
+                    lig_fps = pickle.load(f) # stands for ligand fingerprints
 
-                try:
-                    assert segment_df.pdb_id.tolist() == [pdb_file.split("/")[-1][3:7] for pdb_file in pdb_files]
-                    #log.info("CORRECT ASSERTION: PDBs files IDs equal to PDB IDs from Segment dataframe for Segment {} of {}".format(str(segment), acc))
-                except AssertionError as e:
-                    log.critical("PDB file IDs do not agree with those from Segment dataframe for Segment {} of {}".format(str(segment), acc))
-                    continue 
+            ### CHECKING THAT THERE ARE FINGERPRINTS. THERE SHOULD ALWAYS BE AT THIS POINT.
 
-                ### OBTAINING PROTEIN-LIGAND FINGERPRINTS
+            if lig_fps == {}: # if there are not any segment fingerprints (no ligands bound)
+                print("{}\t{}".format(seg_id, str(6)), flush = True)
+                log.warning("ACHTUNG! No fingerprints found for Segment {} of {}".format(str(segment), acc))
+                continue
+
+            ### FILTER OUT NON-SEGMENT LIGAND INTERACTIONS
+
+            n_acc_chain_inters = sum([len(inters) for ligs in lig_fps.values() for inters in ligs.values()]) # number of ligands interactions with target UniProt Accession chains for all structures in a segment
+            
+            if n_acc_chain_inters == 0: #there are ligands bound, but not to the target protein chains, across all ligands bound in all structures for a segment
+                print("{}\t{}".format(seg_id, str(7)), flush = True)
+                log.warning("None of the ligands in Segment {} of {} interact with any of the target chains".format(str(segment), acc))
+                continue
+
+            ### FILTER OUT NON-LOIS 
+
+            #lig_fps_filt1 = filter_non_relevant_ligs(lig_fps, relevant_ligs) # FILTERS OUT NON-LOIs INTERACTIONS. THIS IS WHERE WE WOULD CHECK FOR LIGAND SIZE AS WELL.
+
+            lig_fps_filt1 = lig_fps # avoiding filtering, as we are already using BioLiP LOIs
+
+            n_relevant_ligs = sum([len(rel_ligs) for rel_ligs in lig_fps_filt1.values()])
+
+            if n_relevant_ligs == 0: #there are ligands bound, but they are all non-relevant, across all ligands bound in all structures for a segment
+                print("{}\t{}".format(seg_id, str(8)), flush = True)
+                log.warning("All ligands in Segment {} of {} are not relevant".format(str(segment), acc))
+                continue
+
+            ### FILTER OUT NON-PROTEIN INTERACTIONS
+
+            lig_fps_filt2 = filter_non_protein_inters(lig_fps_filt1, acc, pdb_resnames) # FILTERS OUT NON-PROTEIN INTERACTIONS
+
+            n_protein_inters = sum([len(inters) for rel_ligs in lig_fps_filt2.values() for inters in rel_ligs.values()]) # number of protein-RELEVANT ligands interactions for all structures in a segment
+
+            if n_protein_inters == 0: #there are ligands bound, but they are all non-relevant, across all ligands bound in all structures for a segment
+                print("{}\t{}".format(seg_id, str(9)), flush = True)
+                log.warning("None of the ligand interactions in Segment {} of {} involve target protein atoms".format(str(segment), acc))
+                continue
+
+            ### TODO: IMPLEMENT ONLY-SIDECHAIN INTERACTIONS ###
+            ###                                             ###
+            ###                                             ###
+            ### TODO: IMPLEMENT ONLY-SIDECHAIN INTERACTIONS ###
+
+            log.info("Ligand fingerprints obtained for Segment {} of {}".format(str(segment), acc))
+
+            ### GETTING PDB-UNIPROT SIFTS MAPPING
+
+            sifts_out = os.path.join(results_dir, "{}_{}_strs_sifts.pkl".format(acc, str(segment)))
+
+            if override or not os.path.isfile(sifts_out):
+                sifts_mapping = {}
+                for pdb_id in all_ligs_pdbs_segment: # before it was just pdb_ids, so no information would be retrieved of those with no structure in local PDB copy
+                    sifts_mapping[pdb_id] = get_mapping_from_sifts(pdb_id)
+                with open(sifts_out, "wb") as f:
+                    pickle.dump(sifts_mapping, f)
+                log.info("Obtained SIFTS mappings table")
+            else:
+                with open(sifts_out, "rb") as f:
+                    sifts_mapping = pickle.load(f)
+                log.info("Loaded SIFTS mappings table")
+
+            lig_fps_filt2 = {k: v for k, v in lig_fps_filt2.items() if sifts_mapping[k] != {}} #filter out those fingerprints form structures where SIFTS mapping was not retrieved
+
+            lig_fps_filt2_sifted, lig_fps_filt2_sifted_v2 = get_up_mapping_from_prointvar(lig_fps_filt2, sifts_mapping)
+
+            ### FILTERING OUT FINGERPRINTS THAT ARE EMPTY DUE TO LACK OF SIFTS MAPPING ###
+
+            for k1, v1 in lig_fps_filt2_sifted_v2.items():
+                if v1 == []:
+                    log.warning("{} resulted in an empty fingerprint".format(k1))
+                else:
+                    pass
+            lig_fps_filt2_sifted_v2 = {k: v for k, v in lig_fps_filt2_sifted_v2.items() if v != []} # removes empty fingerprints from dict
+
+            lig_fps_filt2_sifted = {k1: {k2: v2 for k2, v2 in v1.items() if v2 != []} for k1, v1 in lig_fps_filt2_sifted.items()} # removes empty fingerprints from dict
+            lig_fps_filt2_sifted = {k: v for k, v in lig_fps_filt2_sifted.items() if v != {}} # removes pdb entries from dict if no fingerprints remain in dict
+            
+            # it could be that none of the fingerprints have SIFTS mappings, and therefore dictionaries are empty
+
+            if lig_fps_filt2_sifted == {}:
+                print("{}\t{}".format(seg_id, str(10)), flush = True)
+                log.warning("No relevant fingerprints present SIFTS mapping for Segment {} of {}".format(str(segment), acc))
+                continue
+
+            ### DONE ###
+
+            log.info("PDB-UniProt mappings performed for Segment {} of {}".format(str(segment), acc))
+
+            ### REMOVING REDUNDANT LIGANDS: LIGANDS WITH SAME LIGAND ID AND SAME FINGERPRINT. possibly not needed.
+
+            ### TODO ###
+
+            ### CLUSTERING LIGANDS INTO BINDING SITES
+
+            lig_sifted_inters = get_inters(lig_fps_filt2_sifted)
+            lig_sifted_inters = [sorted(list(set(i))) for i in lig_sifted_inters] # making sure each residue is present only once (O00214 problematic with saccharides)
+
+            lig_labs = get_labs(lig_fps_filt2_sifted)
+            n_ligs = len(lig_labs)
+            log.info("There are {} relevant ligands for Segment {} of {}".format(str(n_ligs), str(segment), acc))
+            irel_mat_out = os.path.join(results_dir, "{}_{}_irel_matrix.pkl".format(acc, str(segment)))
+
+            if override or not os.path.isfile(irel_mat_out):
+                irel_matrix = get_intersect_rel_matrix(lig_sifted_inters) # this is a measure of similarity, probs want to save this
+                dump_pickle(irel_matrix, irel_mat_out)
+                log.info("Calcualted intersection matrix")
+            else:
+                load_pickle(irel_mat_out)
+                log.info("Loaded intersection matrix")
+            if n_ligs == 1:
+                cluster_ids = [0]
+            else:
+                irel_df = pd.DataFrame(irel_matrix)
+                dist_df = 1 - irel_df # distance matrix in pd.Dataframe() format
+                condensed_dist_mat = scipy.spatial.distance.squareform(dist_df) # condensed distance matrix to be used for clustering
+                linkage = scipy.cluster.hierarchy.linkage(condensed_dist_mat, method = lig_clust_method, optimal_ordering = True)
+                cut_tree = scipy.cluster.hierarchy.cut_tree(linkage, height = lig_clust_dist)
+                cluster_ids = [int(cut) for cut in cut_tree]
+            cluster_id_dict = {lig_labs[i]: cluster_ids[i] for i in range(len(lig_labs))} #dictionary indicating membership for each lig
+            
+            log.info("Ligand clustering realised for Segment {} of {}".format(str(segment), acc))
+
+            ### TREE VISUALISATION AND COLOURING SECTION ###
+
+            bs_colors = list(itertools.islice(rgbs(), 300)) # new_colours
+
+            ### TODO ###
+
+            if run_transform:
+
+                ### TRANSFORMATION OF PROTEIN-LIGAND INTERACTIONS CONTAINING PDBs
+
+                transform_all_files(pdb_files, matrices, chains, raw_dir, clean_dir, trans_dir) # this is wrong. pdb_files and chains do not match
+
+                log.info("Structures cleaned and transformed for Segment {} of {}".format(str(segment), acc))
+
+                ### SIMPLIFYING PDB FILES (1 MODEL PROTEIN COORDINATES + HETATM FOR THE REST OF THEM)
+
+                get_simple_pdbs(trans_dir, simple_dir) # right now, does not print ligands if they are actual amino acids. Could fix passing ligand data for each structure. fingerprints dict
+
+                log.info("Structures simplified for Segment {} of {}".format(str(segment), acc))
+
+                ### CHIMERA COLOURING SCRIPT AND ATTRIBUTE WRITING
+
+                chimera_atom_specs = get_chimera_data(cluster_id_dict)
+
+                attr_out = os.path.join(results_dir, "{}_{}_pdbe_kb_scipy_{}_{}.attr".format(acc, str(segment), lig_clust_method, lig_clust_dist))
                 
-                fps_out = os.path.join(results_dir, "{}_{}_ligs_fingerprints.pkl".format(acc, str(segment))) #fps: will stand for fingerprints. update with main_dir and so on.
-                pdb_set = segment_pdbs[segment]
-                log.info("There are {} unique PDBs for Segment {} of {}".format(str(len(pdb_set)), str(segment), acc))
-                all_ligs_pdbs_segment = [pdb for pdb in all_ligs_pdbs if pdb in pdb_set] # filtering pdbs so only data about segment is retrieved
-                log.info("There are {} unique ligand-binding PDBs for Segment {} of {}".format(str(len(all_ligs_pdbs_segment)), str(segment), acc))
+                if override or not os.path.isfile(attr_out):
+                    
+                    write_chimera_attr(attr_out, chimera_atom_specs, cluster_ids)
 
-                if override or not os.path.isfile(fps_out):
-                    if all_ligs_pdbs_segment == []:
-                        print("{}\t{}".format(seg_id, str(5)), flush = True)
-                        log.warning("Segment {} of {} does not present any ligand-binding structures".format(str(segment), acc))
-                        continue
-                    else:
-                        lig_fps = get_fingerprints_dict(acc, fps_dir, fps_out, all_ligs_pdbs_segment, segment_chains[segment], bound_mols_dir, bound_mol_inters_dir) # GETS ALL LIGAND FINGERPRINTS FROM LIG-BOUND CONTAINING PDBS
-                else:
-                    with open(fps_out, "rb") as f:
-                        lig_fps = pickle.load(f) # stands for ligand fingerprints
+                chimera_script_out = os.path.join(results_dir, "{}_{}_pdbe_kb_scipy_{}_{}.com".format(acc, str(segment), lig_clust_method, lig_clust_dist))
 
-                ### CHECKING THAT THERE ARE FINGERPRINTS. THERE SHOULD ALWAYS BE AT THIS POINT.
+                ### IMPLEMENT CHIMERA OPENING SCRIPT: opens only those PDBs that are actually binding ligands. could be less than 50% of total chains
 
-                if lig_fps == {}: # if there are not any segment fingerprints (no ligands bound)
-                    print("{}\t{}".format(seg_id, str(6)), flush = True)
-                    log.warning("ACHTUNG! No fingerprints found for Segment {} of {}".format(str(segment), acc))
-                    continue
+                if override or not os.path.isfile(chimera_script_out):
 
-                ### FILTER OUT NON-SEGMENT LIGAND INTERACTIONS
+                    write_chimera_command(chimera_script_out, chimera_cmd_args, cluster_ids, bs_colors)
 
-                n_acc_chain_inters = sum([len(inters) for ligs in lig_fps.values() for inters in ligs.values()]) # number of ligands interactions with target UniProt Accession chains for all structures in a segment
+                log.info("Chimera attributes and script generated for Segment {} of {}".format(str(segment), acc))
+
+            ### BINDING SITE MEMBERSHIP PROCESSING
+
+            membership_out = os.path.join(results_dir, "{}_{}_bss_membership.pkl".format(acc, str(segment)))
+            cluster_ress_out = os.path.join(results_dir, "{}_{}_bss_ress.pkl".format(acc, str(segment)))
+            bs_mm_dict_out = os.path.join(results_dir, "{}_{}_ress_bs_membership.pkl".format(acc, str(segment)))
                 
-                if n_acc_chain_inters == 0: #there are ligands bound, but not to the target protein chains, across all ligands bound in all structures for a segment
-                    print("{}\t{}".format(seg_id, str(7)), flush = True)
-                    log.warning("None of the ligands in Segment {} of {} interact with any of the target chains".format(str(segment), acc))
-                    continue
+            if override or not os.path.isfile(membership_out):
+                membership = get_cluster_membership(cluster_id_dict) # which LBS ligands belong to
+                dump_pickle(membership, membership_out)
+                log.info("Calculated binding site membership")
+            else:
+                membership = load_pickle(membership_out)
+                log.debug("Loaded binding site membership")
 
-                ### FILTER OUT NON-LOIS 
+            if override or not os.path.isfile(cluster_ress_out):
+                cluster_ress = get_all_cluster_ress(membership, lig_fps_filt2_sifted_v2) # residues that form each LBS 
+                dump_pickle(cluster_ress, cluster_ress_out) 
+                log.info("Calculated binding site composition") 
+            else:
+                cluster_ress = load_pickle(cluster_ress_out)
+                log.info("Loaded binding site composition")
 
-                lig_fps_filt1 = filter_non_relevant_ligs(lig_fps, relevant_ligs) # FILTERS OUT NON-LOIs INTERACTIONS. THIS IS WHERE WE WOULD CHECK FOR LIGAND SIZE AS WELL.
+            if override or not os.path.isfile(bs_mm_dict_out):
+                bs_ress_membership_dict = get_residue_bs_membership(cluster_ress)
+                log.info("Calcualted residue membership")
+                dump_pickle(bs_ress_membership_dict, bs_mm_dict_out)  
+            else:
+                bs_ress_membership_dict = load_pickle(bs_mm_dict_out)
+                log.debug("Loaded residue membership")
 
-                n_relevant_ligs = sum([len(rel_ligs) for rel_ligs in lig_fps_filt1.values()])
+            ### RUNNING DSSP FOR ALL STRUCTURES
 
-                if n_relevant_ligs == 0: #there are ligands bound, but they are all non-relevant, across all ligands bound in all structures for a segment
-                    print("{}\t{}".format(seg_id, str(8)), flush = True)
-                    log.warning("All ligands in Segment {} of {} are not relevant".format(str(segment), acc))
-                    continue
+            master_dssp_out = os.path.join(results_dir, "{}_{}_strs_dssp.pkl".format(acc, str(segment)))
+            if override or not os.path.isfile(master_dssp_out):
+                dssp_data = get_dssp_data(trans_dir, dssp_dir, sifts_mapping, master_dssp_out)
+                log.info("Obtained DSSP data")
+            else:
+                dssp_data = pd.read_pickle(master_dssp_out)
+                log.info("Loaded DSSP data")
+            if dssp_data.empty:
+                log.warning("There is no DSSP data for Segment {} of {}".format(str(segment), acc))
+            else:
+                dsspd_filt = dssp_data.query('UniProt_ResNum == UniProt_ResNum and AA != "X" and RSA == RSA').copy()
+                dsspd_filt.SS = dsspd_filt.SS.fillna("C")
+                dsspd_filt.SS = dsspd_filt.SS.replace("", "C")
+                dsspd_filt.UniProt_ResNum = dsspd_filt.UniProt_ResNum.astype(int)
 
-                ### FILTER OUT NON-PROTEIN INTERACTIONS
+                AA_dict_out = os.path.join(results_dir, "{}_{}_ress_AA.pkl".format(acc, str(segment)))
+                RSA_dict_out = os.path.join(results_dir, "{}_{}_ress_RSA.pkl".format(acc, str(segment)))
+                SS_dict_out = os.path.join(results_dir, "{}_{}_ress_SS.pkl".format(acc, str(segment)))
+                rsa_profs_out = os.path.join(results_dir, "{}_{}_bss_RSA_profiles.pkl".format(acc, str(segment)))
 
-                lig_fps_filt2 = filter_non_protein_inters(lig_fps_filt1, acc, pdb_resnames) # FILTERS OUT NON-PROTEIN INTERACTIONS
-
-                n_protein_inters = sum([len(inters) for rel_ligs in lig_fps_filt2.values() for inters in rel_ligs.values()]) # number of protein-RELEVANT ligands interactions for all structures in a segment
-
-                if n_protein_inters == 0: #there are ligands bound, but they are all non-relevant, across all ligands bound in all structures for a segment
-                    print("{}\t{}".format(seg_id, str(9)), flush = True)
-                    log.warning("None of the ligand interactions in Segment {} of {} involve target protein atoms".format(str(segment), acc))
-                    continue
-
-                ### TODO: IMPLEMENT ONLY-SIDECHAIN INTERACTIONS ###
-                ###                                             ###
-                ###                                             ###
-                ### TODO: IMPLEMENT ONLY-SIDECHAIN INTERACTIONS ###
-
-                log.info("Ligand fingerprints obtained for Segment {} of {}".format(str(segment), acc))
-
-                ### GETTING PDB-UNIPROT SIFTS MAPPING
-
-                sifts_out = os.path.join(results_dir, "{}_{}_strs_sifts.pkl".format(acc, str(segment)))
-
-                if override or not os.path.isfile(sifts_out):
-                    sifts_mapping = {}
-                    for pdb_id in all_ligs_pdbs_segment: # before it was just pdb_ids, so no information would be retrieved of those with no structure in local PDB copy
-                        sifts_mapping[pdb_id] = get_mapping_from_sifts(pdb_id)
-                    with open(sifts_out, "wb") as f:
-                        pickle.dump(sifts_mapping, f)
-                    #log.info("SIFTS mappings table generated")
+                if override or not os.path.isfile(AA_dict_out):
+                    ress_AA_dict = {
+                        up_resnum: dsspd_filt.query('UniProt_ResNum == @up_resnum').AA.mode()[0] # gets dict per UP residue and meore frequent AA.
+                        for up_resnum in dsspd_filt.UniProt_ResNum.unique().tolist()
+                    }   
+                    dump_pickle(ress_AA_dict, AA_dict_out)
+                    log.info("Calculated residue AA dictionary")
                 else:
-                    with open(sifts_out, "rb") as f:
-                        sifts_mapping = pickle.load(f)
-                    #log.info("SIFTS mappings table read")
+                    ress_AA_dict = load_pickle(AA_dict_out)
+                    log.debug("Loaded residue AA dictionary")
 
-                lig_fps_filt2 = {k: v for k, v in lig_fps_filt2.items() if sifts_mapping[k] != {}} #filter out those fingerprints form structures where SIFTS mapping was not retrieved
-
-                lig_fps_filt2_sifted, lig_fps_filt2_sifted_v2 = get_up_mapping_from_prointvar(lig_fps_filt2, sifts_mapping)
-
-                ### FILTERING OUT FINGERPRINTS THAT ARE EMPTY DUE TO LACK OF SIFTS MAPPING ###
-
-                for k1, v1 in lig_fps_filt2_sifted_v2.items():
-                    if v1 == []:
-                        log.warning("{} resulted in an empty fingerprint".format(k1))
-                    else:
-                        pass
-                lig_fps_filt2_sifted_v2 = {k: v for k, v in lig_fps_filt2_sifted_v2.items() if v != []} # removes empty fingerprints from dict
-
-                lig_fps_filt2_sifted = {k1: {k2: v2 for k2, v2 in v1.items() if v2 != []} for k1, v1 in lig_fps_filt2_sifted.items()} # removes empty fingerprints from dict
-                lig_fps_filt2_sifted = {k: v for k, v in lig_fps_filt2_sifted.items() if v != {}} # removes pdb entries from dict if no fingerprints remain in dict
+                if override or not os.path.isfile(RSA_dict_out):
+                    ress_RSA_dict = {
+                        up_resnum: round(dsspd_filt.query('UniProt_ResNum == @up_resnum').RSA.mean(), 2) # gets dict per UP residue and mean RSA.
+                        for up_resnum in dsspd_filt.UniProt_ResNum.unique().tolist()
+                    }
+                    dump_pickle(ress_RSA_dict, RSA_dict_out)  
+                    log.info("Calculated residue RSA dictionary")
+                else:
+                    ress_RSA_dict = load_pickle(RSA_dict_out)
+                    log.debug("Loaded residue RSA dictionary")
                 
-                # it could be that none of the fingerprints have SIFTS mappings, and therefore dictionaries are empty
-
-                if lig_fps_filt2_sifted == {}:
-                    print("{}\t{}".format(seg_id, str(10)), flush = True)
-                    log.warning("No relevant fingerprints present SIFTS mapping for Segment {} of {}".format(str(segment), acc))
-                    continue
-
-                ### DONE ###
-
-                log.info("PDB-UniProt mappings performed for Segment {} of {}".format(str(segment), acc))
-
-                ### REMOVING REDUNDANT LIGANDS: LIGANDS WITH SAME LIGAND ID AND SAME FINGERPRINT. possibly not needed.
-
-                ### TODO ###
-
-                ### CLUSTERING LIGANDS INTO BINDING SITES
-
-                lig_sifted_inters = get_inters(lig_fps_filt2_sifted)
-                lig_sifted_inters = [sorted(list(set(i))) for i in lig_sifted_inters] # making sure each residue is present only once (O00214 problematic with saccharides)
-
-                lig_labs = get_labs(lig_fps_filt2_sifted)
-                n_ligs = len(lig_labs)
-                log.info("There are {} relevant ligands for Segment {} of {}".format(str(n_ligs), str(segment), acc))
-                irel_mat_out = os.path.join(results_dir, "{}_{}_irel_matrix.pkl".format(acc, str(segment)))
-
-                if override or not os.path.isfile(irel_mat_out):
-                    irel_matrix = get_intersect_rel_matrix(lig_sifted_inters) # this is a measure of similarity, probs want to save this
-                    #log.info("Intersection matrix created")
-                    with open(irel_mat_out, "wb") as f:
-                        pickle.dump(irel_matrix, f)
+                if override or not os.path.isfile(SS_dict_out):
+                    ress_SS_dict = {
+                        up_resnum: dsspd_filt.query('UniProt_ResNum == @up_resnum').SS.mode()[0] # gets dict per UP residue and more frequent SS.
+                        for up_resnum in dsspd_filt.UniProt_ResNum.unique().tolist()
+                    }
+                    dump_pickle(ress_SS_dict, SS_dict_out)
+                    log.info("Calculated residue SS dictionary")
                 else:
-                    with open(irel_mat_out, "rb") as f:
-                        irel_matrix = pickle.load(f)
-                        #log.info("Intersection matrix read")
-                if n_ligs == 1:
-                    cluster_ids = [0]
-                else:
-                    irel_df = pd.DataFrame(irel_matrix)
-                    dist_df = 1 - irel_df # distance matrix in pd.Dataframe() format
-                    condensed_dist_mat = scipy.spatial.distance.squareform(dist_df) # condensed distance matrix to be used for clustering
-                    linkage = scipy.cluster.hierarchy.linkage(condensed_dist_mat, method = lig_clust_method, optimal_ordering = True)
-                    cut_tree = scipy.cluster.hierarchy.cut_tree(linkage, height = lig_clust_dist)
-                    cluster_ids = [int(cut) for cut in cut_tree]
-                cluster_id_dict = {lig_labs[i]: cluster_ids[i] for i in range(len(lig_labs))} #dictionary indicating membership for each lig
-                
-                log.info("Ligand clustering realised for Segment {} of {}".format(str(segment), acc))
+                    ress_SS_dict = load_pickle(SS_dict_out)
+                    log.debug("Loaded residue SS dictionary")
 
-                ### TREE VISUALISATION AND COLOURING SECTION ###
-
-                bs_colors = list(itertools.islice(rgbs(), 300)) # new_colours
-
-                ### TODO ###
-
-                if run_transform:
-
-                    ### TRANSFORMATION OF PROTEIN-LIGAND INTERACTIONS CONTAINING PDBs
-
-                    transform_all_files(pdb_files, matrices, chains, raw_dir, clean_dir, trans_dir) # this is wrong. pdb_files and chains do not match
-
-                    log.info("Structures cleaned and transformed for Segment {} of {}".format(str(segment), acc))
-
-                    ### SIMPLIFYING PDB FILES (1 MODEL PROTEIN COORDINATES + HETATM FOR THE REST OF THEM)
-
-                    get_simple_pdbs(trans_dir, simple_dir) # right now, does not print ligands if they are actual amino acids. Could fix passing ligand data for each structure. fingerprints dict
-
-                    log.info("Structures simplified for Segment {} of {}".format(str(segment), acc))
-
-                    ### CHIMERA COLOURING SCRIPT AND ATTRIBUTE WRITING
-
-                    chimera_atom_specs = get_chimera_data(cluster_id_dict)
-
-                    attr_out = os.path.join(results_dir, "{}_{}_pdbe_kb_scipy_{}_{}.attr".format(acc, str(segment), lig_clust_method, lig_clust_dist))
-                    
-                    if override or not os.path.isfile(attr_out):
-                        
-                        write_chimera_attr(attr_out, chimera_atom_specs, cluster_ids)
-
-                    chimera_script_out = os.path.join(results_dir, "{}_{}_pdbe_kb_scipy_{}_{}.com".format(acc, str(segment), lig_clust_method, lig_clust_dist))
-
-                    ### IMPLEMENT CHIMERA OPENING SCRIPT: opens only those PDBs that are actually binding ligands. could be less than 50% of total chains
-
-                    if override or not os.path.isfile(chimera_script_out):
-
-                        write_chimera_command(chimera_script_out, chimera_cmd_args, cluster_ids, bs_colors)
-
-                    log.info("Chimera attributes and script generated for Segment {} of {}".format(str(segment), acc))
-
-
-                ### BINDING SITE MEMBERSHIP PROCESSING
-
-                membership_out = os.path.join(results_dir, "{}_{}_bss_membership.pkl".format(acc, str(segment)))
-                cluster_ress_out = os.path.join(results_dir, "{}_{}_bss_ress.pkl".format(acc, str(segment)))
-                bs_mm_dict_out = os.path.join(results_dir, "{}_{}_ress_bs_membership.pkl".format(acc, str(segment)))
-                    
-                if override or not os.path.isfile(membership_out):
-                    membership = get_cluster_membership(cluster_id_dict)#, membership_out) # which LBS ligands belong to
-                    #log.info("Binding site membership calculated")
-                    dump_pickle(membership, membership_out)
-                    #with open(membership_out, "wb") as f:
-                    #    pickle.dump(membership, f)
-                else:
-                    membership = load_pickle(membership_out)
-                    #with open(membership_out, "rb") as f:
-                    #    membership = pickle.load(f)
-                    #log.info("Binding site membership read")
-
-                if override or not os.path.isfile(cluster_ress_out):
-                    cluster_ress = get_all_cluster_ress(membership, lig_fps_filt2_sifted_v2)#, cluster_ress_out) # residues that form each LBS
-                    #log.info("Binding site composition determined")  
-                    dump_pickle(cluster_ress, cluster_ress_out) 
-                    #with open(cluster_ress_out, "wb") as f:
-                    #    pickle.dump(cluster_ress, f)
-                else:
-                    cluster_ress = load_pickle(cluster_ress_out)
-                    #with open(cluster_ress_out, "rb") as f:
-                    #    cluster_ress = pickle.load(f)
-                    #log.info("Binding site composition read")
-
-                if override or not os.path.isfile(bs_mm_dict_out):
-                    bs_ress_membership_dict = get_residue_bs_membership(cluster_ress)#, bs_mm_dict_out)
-                    #log.info("Residue membership calculated")
-                    dump_pickle(bs_ress_membership_dict, bs_mm_dict_out)  
-                    #with open(bs_mm_dict_out, "wb") as f:
-                    #    pickle.dump(bs_ress_membership_dict, f)
-                else:
-                    bs_ress_membership_dict = load_pickle(bs_mm_dict_out)
-                    #with open(bs_mm_dict_out, "rb") as f:
-                    #    bs_ress_membership_dict = pickle.load(f)
-                    #log.info("Residue membership read")
-
-                ### RUNNING DSSP FOR ALL STRUCTURES
-
-                master_dssp_out = os.path.join(results_dir, "{}_{}_strs_dssp.pkl".format(acc, str(segment)))
-                if override or not os.path.isfile(master_dssp_out):
-                    dssp_data = get_dssp_data(trans_dir, dssp_dir, sifts_mapping, master_dssp_out)
-                    #log.info("DSSP table calcualted")
-                else:
-                    dssp_data = pd.read_pickle(master_dssp_out)
-                    #log.info("DSSP table read")
-                if dssp_data.empty:
-                    log.warning("There is no DSSP data for Segment {} of {}".format(str(segment), acc))
-                else:
-                    dsspd_filt = dssp_data.query('UniProt_ResNum == UniProt_ResNum and AA != "X" and RSA == RSA').copy()
-                    dsspd_filt.SS = dsspd_filt.SS.fillna("C")
-                    dsspd_filt.SS = dsspd_filt.SS.replace("", "C")
-                    dsspd_filt.UniProt_ResNum = dsspd_filt.UniProt_ResNum.astype(int)
-
-                    AA_dict_out = os.path.join(results_dir, "{}_{}_ress_AA.pkl".format(acc, str(segment)))
-                    RSA_dict_out = os.path.join(results_dir, "{}_{}_ress_RSA.pkl".format(acc, str(segment)))
-                    SS_dict_out = os.path.join(results_dir, "{}_{}_ress_SS.pkl".format(acc, str(segment)))
-                    rsa_profs_out = os.path.join(results_dir, "{}_{}_bss_RSA_profiles.pkl".format(acc, str(segment)))
-
-                    if override or not os.path.isfile(AA_dict_out):
-                        ress_AA_dict = {
-                            up_resnum: dsspd_filt.query('UniProt_ResNum == @up_resnum').AA.mode()[0] # gets dict per UP residue and meore frequent AA.
-                            for up_resnum in dsspd_filt.UniProt_ResNum.unique().tolist()
-                        }   
-                        dump_pickle(ress_AA_dict, AA_dict_out)
-                        #log.info("Residue AA dictionary calculated")
-                    else:
-                        ress_AA_dict = load_pickle(AA_dict_out)
-                        #log.info("Residue AA dictionary read")
-
-                    if override or not os.path.isfile(RSA_dict_out):
-                        ress_RSA_dict = {
-                            up_resnum: round(dsspd_filt.query('UniProt_ResNum == @up_resnum').RSA.mean(), 2) # gets dict per UP residue and mean RSA.
-                            for up_resnum in dsspd_filt.UniProt_ResNum.unique().tolist()
-                        }
-                        dump_pickle(ress_RSA_dict, RSA_dict_out)  
-                        #log.info("Residue RSA dictionary read")
-                    else:
-                        ress_RSA_dict = load_pickle(RSA_dict_out)
-                        #log.info("Residue RSA dictionary calculated")
-                    
-                    if override or not os.path.isfile(SS_dict_out):
-                        ress_SS_dict = {
-                            up_resnum: dsspd_filt.query('UniProt_ResNum == @up_resnum').SS.mode()[0] # gets dict per UP residue and more frequent SS.
-                            for up_resnum in dsspd_filt.UniProt_ResNum.unique().tolist()
-                        }
-                        dump_pickle(ress_SS_dict, SS_dict_out)
-                        #log.info("Residue SS dictionary calculated")
-                    else:
-                        ress_SS_dict = load_pickle(SS_dict_out)
-                        #log.info("Residue SS dictionary read")
-
-                    if override or not os.path.isfile(rsa_profs_out):
-                        #rsa_profiles = {k: [ress_RSA_dict[v2] for v2 in v] for k, v in cluster_ress.items()}
-                        rsa_profiles = {}
-                        for k, v in cluster_ress.items():
-                            rsa_profiles[k] = []
-                            for v2 in v:
-                                if v2 in ress_RSA_dict:
-                                    rsa_profiles[k].append(ress_RSA_dict[v2])
-                                else:
-                                    log.warning("Cannot find RSA data for UP residue {} in Segment {} of {}".format(str(v2), str(segment), acc))
-                        dump_pickle(rsa_profiles, rsa_profs_out)
-
-                        #log.info("Ligand binding site RSA profile calculated")
-                    else:
-                        rsa_profiles = load_pickle(rsa_profs_out)
-                        #log.info("Ligand binding site RSA profile read")
-
-                    log.info("DSSP data processed for Segment {} of {}".format(str(segment), acc))
-
-                ### FINISHING PIPELINE BEFORE VARIANT PART
-                #log.info("Finishing pipeline early!")
-                #continue
-                ### FINISHING PIPELINE BEFORE VARIANT PART
-
-                ### GENERATE ALIGNMENT                                                 
-
-                if run_variants:
-
-                    seq_out = os.path.join(variants_dir, "{}_{}.fasta".format(acc, str(segment)))
-
-                    if override_variants or not os.path.isfile(seq_out):
-                        best = get_best_from_segment_data(segment_data[segment])
-                        best_seq_id = get_best_struct_seq(acc, segment, seq_out, best) # change how we get seq. must be representative of the segment
-                        #log.info("Sequence file generated")
-                    else:
-                        best_seq_id = [rec.id for rec in Bio.SeqIO.parse(seq_out, "fasta")][0]
-                        #log.info("Sequence file already generated")
-                        pass
-
-                    hits_out = os.path.join(variants_dir, "{}_{}_jackhmmer.out".format(acc, str(segment)))
-                    hits_aln = os.path.join(variants_dir, "{}_{}_jackhmmer.sto".format(acc, str(segment)))
-
-                    if override_variants or not os.path.isfile(hits_out) or not os.path.isfile(hits_aln):
-                        jackhmmer(seq_out, hits_out, hits_aln, n_it = jackhmmer_n_it, seqdb = swissprot)
-                        #log.info("MSA generated")
-                    else:
-                        #log.info("MSA already generated")
-                        pass
-                    
-                    n_seqs = len(AlignIO.read(hits_aln, MSA_fmt))
-
-                    if n_seqs == 1: # need RESULTS TABLE even if there is no MSA data
-                        print("{}\t{}".format(seg_id, str(11)), flush = True)
-                        log.critical("No sequences were found by jackHMMER for Segment {} of {}. Finishing here".format(str(segment), acc))
-                        continue
-                    else:
-                        log.info("{} sequences were found by jackHMMER for Segment {} of {}".format(str(n_seqs), str(segment), acc))
-                    hits_aln_rf = os.path.join(variants_dir, "{}_{}_jackhmmer_rf.sto".format(acc, str(segment)))
-
-                    if override_variants or not os.path.isfile(hits_aln_rf):
-                        add_acc2msa(hits_aln, hits_aln_rf, best_seq_id)
-                        #log.info("MSA formatted")
-                    else:
-                        #log.info("MSA already formatted")
-                        pass
-
-                    log.info("MSA realised for Segment {} of {}".format(str(segment), acc))
-
-                    ### CONSERVATION ANALYSIS
-
-                    prot_cols = prot_cols = get_target_prot_cols(hits_aln, best_seq_id)
-                    shenkin_out = os.path.join(variants_dir, "{}_{}_jackhmmer_rf_shenkin.pkl".format(acc, str(segment)))
-                    if override_variants or not os.path.isfile(shenkin_out):
-                        shenkin = calculate_shenkin(hits_aln_rf, "stockholm", shenkin_out)
-                        #log.info("Conservation data table calculated")
-                    else:
-                        shenkin = pd.read_pickle(shenkin_out)
-                        #log.info("Conservation data table read")
-                    
-                    shenkin_filt_out = os.path.join(variants_dir, "{}_{}_jackhmmer_rf_shenkin_filt.pkl".format(acc, str(segment)))
-                    if override_variants or not os.path.isfile(shenkin_filt_out):
-                        shenkin_filt = format_shenkin(shenkin, prot_cols, shenkin_filt_out)
-                        #log.info("Conservation data filtered table calculated")
-                    else:
-                        shenkin_filt = pd.read_pickle(shenkin_filt_out)
-                        #log.info("Conservation data filtered table read")
-
-                    log.info("Conservation scores calculated for Segment {} of {}".format(str(segment), acc))
-
-                    ### VARIATION, POSSIBLY NEED TO IMPLEMENT CLINVAR AS WELL
-
-                    aln_obj = Bio.AlignIO.read(hits_aln_rf, "stockholm") #crashes if target protein is not human!
-                    aln_info_path = os.path.join(variants_dir, "{}_{}_jackhmmer_rf_info_table.p.gz".format(acc, str(segment)))
-                    if override_variants or not os.path.isfile(aln_info_path):
-                        aln_info = varalign.alignments.alignment_info_table(aln_obj)
-                        aln_info.to_pickle(aln_info_path)
-                        #log.info("MSA info table generated")
-                    else:
-                        aln_info = pd.read_pickle(aln_info_path)
-                        #log.info("MSA info table read")
-                    
-                    log.info("There are {} sequences in MSA for Segment {}".format(len(aln_info), str(segment)))
-
-                    indexed_mapping_path = os.path.join(variants_dir, "{}_{}_jackhmmer_rf_mappings.p.gz".format(acc, str(segment)))
-                    if override_variants or not os.path.isfile(indexed_mapping_path):
-                        indexed_mapping_table = varalign.align_variants._mapping_table(aln_info) # now contains all species
-                        indexed_mapping_table.to_pickle(indexed_mapping_path) # important for merging later on
-                        #log.info("MSA mapping table was created")
-                    else:
-                        indexed_mapping_table = pd.read_pickle(indexed_mapping_path)
-                        #log.info("MSA mapping table read")    
-
-                    aln_info_human = aln_info[aln_info.species == "HUMAN"]
-
-                    #if len(aln_info_human) == 0: # THERE ARE NOT ANY HUMAN HOMOLOGUES FOR THE TARGET PROTEIN
-                    #    pass
-                        #log.info("There are {} HUMAN sequences in the MSA for Segment {} of {}".format(len(aln_info_human), str(segment), acc))
-
-                    if len(aln_info_human) > 0:
-                        log.info("There are {} HUMAN sequences in the MSA for Segment {} of {}".format(len(aln_info_human), str(segment), acc))
-                    
-                        human_hits_msa = os.path.join(variants_dir, "{}_{}_jackhmmer_rf_human.sto".format(acc, str(segment)))
-                        
-                        if override_variants or not os.path.isfile(human_hits_msa):
-                            get_human_subset_msa(hits_aln_rf, human_hits_msa)
-                        else:
-                            pass
-
-                        ### copy ensemble SQLite to directory where this is being executed
-                        cp_path = cp_sqlite(wd)
-                        log.info("ENSEMBL_CACHE SQLite copied correctly")
-
-                        variant_table_path = os.path.join(variants_dir, "{}_{}_jackhmmer_rf_human_variants.p.gz".format(acc, str(segment)))
-                        if override_variants or not os.path.isfile(variant_table_path):
-                            #vcf_out_path = os.path.join(main_dir , "results", "{}_alignment_variants.vcf".format(seg_id))
-                            try:
-                                variants_table = varalign.align_variants.align_variants(aln_info_human, path_to_vcf = gnomad_vcf,  include_other_info = False, write_vcf_out = False)     
-                            except ValueError as e:
-                                print("{}\t{}".format(seg_id, str(12)), flush = True)
-                                variants_table = pd.DataFrame()
-                                log.warning("No variants were retrieved for Segment {} of {}".format(str(segment), acc))
-
-                            variants_table.to_pickle(variant_table_path)
-
-                        else:
-                            variants_table = pd.read_pickle(variant_table_path)
-
-                        ### remove ensembl SQLite from directory where this is being executed
-                        rm_sqlite(cp_path)
-                        log.info("ENSEMBL_CACHE SQLite removed correctly")
-
-                        if variants_table.empty: # variant table is empty. E.g., P03915. Only 3 human sequences. They are all mitochondrial (not in gnomAD)
-                            pass
-
-                        else:
-                            # in order to be able to read the vcf and parse the DB, the ensemble.cache.sqlite file must be in the ./.varalign directory
-
-                            human_miss_vars = format_variant_table(variants_table, prot_cols) # GET ONLY MISSENSE VARIANTS ROWS
-                            human_miss_vars_msa_out = os.path.join(variants_dir, "{}_{}_jackhmmer_rf_human_missense_variants_seqs.sto".format(acc, str(segment)))
-
-                            miss_df_out = os.path.join(results_dir, "{}_{}_missense_df.pkl".format(acc, str(segment)))
-                            
-                            if override or not os.path.isfile(miss_df_out): # we leave it as override and not override_variants to fix the wrong pseudocounts
-                                missense_variants_df = get_missense_df(
-                                    hits_aln_rf, human_miss_vars,
-                                    shenkin_filt, prot_cols, human_miss_vars_msa_out
-                                )
-
-                                if missense_variants_df.empty:
-                                    print("{}\t{}".format(seg_id, str(13)), flush = True)
-                                    log.info("No missense variants found for MSA of Segment {} of {}".format(str(segment), acc))
-                                    pass
-
-                                else:
-                                    missense_variants_df = add_miss_class(
-                                        missense_variants_df, miss_df_out,
-                                        cons_col = "rel_norm_shenkin",
-                                    )
-                                    #log.info("Missense dataframe created")
+                if override or not os.path.isfile(rsa_profs_out):
+                    rsa_profiles = {}
+                    for k, v in cluster_ress.items():
+                        rsa_profiles[k] = []
+                        for v2 in v:
+                            if v2 in ress_RSA_dict:
+                                rsa_profiles[k].append(ress_RSA_dict[v2])
                             else:
-                                missense_variants_df = pd.read_pickle(miss_df_out)
-                                #log.info("Missense dataframe read")
+                                log.warning("Cannot find RSA data for UP residue {} in Segment {} of {}".format(str(v2), str(segment), acc))
+                    dump_pickle(rsa_profiles, rsa_profs_out)
+                    log.info("Calculated bigand binding site RSA profiles")
+                else:
+                    rsa_profiles = load_pickle(rsa_profs_out)
+                    log.debug("Loaded ligand binding site RSA profiles")
+
+                log.info("DSSP data processed for Segment {} of {}".format(str(segment), acc))
+
+            ### GENERATE ALIGNMENT                                                 
+
+            if run_variants:
+
+                seq_out = os.path.join(variants_dir, "{}_{}.fasta".format(acc, str(segment)))
+
+                if override_variants or not os.path.isfile(seq_out):
+                    best = get_best_from_segment_data(segment_data[segment])
+                    best_seq_id = get_best_struct_seq(acc, segment, seq_out, best) # change how we get seq. must be representative of the segment
+                    log.info("Generated sequence file")
+                else:
+                    best_seq_id = [rec.id for rec in Bio.SeqIO.parse(seq_out, "fasta")][0]
+                    log.debug("Sequence file already existed")
+                    pass
+
+                hits_out = os.path.join(variants_dir, "{}_{}_jackhmmer.out".format(acc, str(segment)))
+                hits_aln = os.path.join(variants_dir, "{}_{}_jackhmmer.sto".format(acc, str(segment)))
+
+                if override_variants or not os.path.isfile(hits_out) or not os.path.isfile(hits_aln):
+                    jackhmmer(seq_out, hits_out, hits_aln, n_it = jackhmmer_n_it, seqdb = swissprot)
+                    log.info("Generated MSA")
+                else:
+                    log.debug("MSA already existed")
+                    pass
+                
+                n_seqs = len(AlignIO.read(hits_aln, MSA_fmt))
+
+                if n_seqs == 1: # need RESULTS TABLE even if there is no MSA data
+                    print("{}\t{}".format(seg_id, str(11)), flush = True)
+                    log.critical("No sequences were found by jackHMMER for Segment {} of {}. Finishing here".format(str(segment), acc))
+                    continue
+                else:
+                    log.info("{} sequences were found by jackHMMER for Segment {} of {}".format(str(n_seqs), str(segment), acc))
+                hits_aln_rf = os.path.join(variants_dir, "{}_{}_jackhmmer_rf.sto".format(acc, str(segment)))
+
+                if override_variants or not os.path.isfile(hits_aln_rf):
+                    add_acc2msa(hits_aln, hits_aln_rf, best_seq_id)
+                    log.info("Formatted MSA")
+                else:
+                    log.debug("MSA already formatted")
+                    pass
+
+                log.info("MSA realised for Segment {} of {}".format(str(segment), acc))
+
+                ### CONSERVATION ANALYSIS
+
+                prot_cols = prot_cols = get_target_prot_cols(hits_aln, best_seq_id)
+                shenkin_out = os.path.join(variants_dir, "{}_{}_jackhmmer_rf_shenkin.pkl".format(acc, str(segment)))
+                if override_variants or not os.path.isfile(shenkin_out):
+                    shenkin = calculate_shenkin(hits_aln_rf, "stockholm", shenkin_out)
+                    log.info("Calculated conservation data")
+                else:
+                    shenkin = pd.read_pickle(shenkin_out)
+                    log.debug("Loaded conservation data")
+                
+                shenkin_filt_out = os.path.join(variants_dir, "{}_{}_jackhmmer_rf_shenkin_filt.pkl".format(acc, str(segment)))
+                if override_variants or not os.path.isfile(shenkin_filt_out):
+                    shenkin_filt = format_shenkin(shenkin, prot_cols, shenkin_filt_out)
+                    log.info("Filtered conservation data")
+                else:
+                    shenkin_filt = pd.read_pickle(shenkin_filt_out)
+                    log.debug("Conservation data already filtered")
+
+                log.info("Conservation scores calculated for Segment {} of {}".format(str(segment), acc))
+
+                ### VARIATION, POSSIBLY NEED TO IMPLEMENT CLINVAR AS WELL
+
+                aln_obj = Bio.AlignIO.read(hits_aln_rf, "stockholm") #crashes if target protein is not human!
+                aln_info_path = os.path.join(variants_dir, "{}_{}_jackhmmer_rf_info_table.p.gz".format(acc, str(segment)))
+                if override_variants or not os.path.isfile(aln_info_path):
+                    aln_info = varalign.alignments.alignment_info_table(aln_obj)
+                    aln_info.to_pickle(aln_info_path)
+                    log.info("Generated MSA info table")
+                else:
+                    aln_info = pd.read_pickle(aln_info_path)
+                    log.debug("Loaded MSA info table")
+                
+                log.info("There are {} sequences in MSA for Segment {}".format(len(aln_info), str(segment)))
+
+                indexed_mapping_path = os.path.join(variants_dir, "{}_{}_jackhmmer_rf_mappings.p.gz".format(acc, str(segment)))
+                if override_variants or not os.path.isfile(indexed_mapping_path):
+                    indexed_mapping_table = varalign.align_variants._mapping_table(aln_info) # now contains all species
+                    indexed_mapping_table.to_pickle(indexed_mapping_path) # important for merging later on
+                    log.info("Generated MSA mapping table")
+                else:
+                    indexed_mapping_table = pd.read_pickle(indexed_mapping_path)
+                    log.debug("Loaded MSA mapping table")    
+
+                aln_info_human = aln_info[aln_info.species == "HUMAN"]
+
+                if len(aln_info_human) > 0:
+                    log.info("There are {} HUMAN sequences in the MSA for Segment {} of {}".format(len(aln_info_human), str(segment), acc))
+                
+                    human_hits_msa = os.path.join(variants_dir, "{}_{}_jackhmmer_rf_human.sto".format(acc, str(segment)))
+                    
+                    if override_variants or not os.path.isfile(human_hits_msa):
+                        get_human_subset_msa(hits_aln_rf, human_hits_msa)
+                    else:
+                        pass
+
+                    ### copy ensemble SQLite to directory where this is being executed
+                    cp_path = cp_sqlite(wd)
+                    log.debug("ENSEMBL_CACHE SQLite copied correctly")
+
+                    variant_table_path = os.path.join(variants_dir, "{}_{}_jackhmmer_rf_human_variants.p.gz".format(acc, str(segment)))
+                    if override_variants or not os.path.isfile(variant_table_path):
+                        #vcf_out_path = os.path.join(main_dir , "results", "{}_alignment_variants.vcf".format(seg_id))
+                        try:
+                            variants_table = varalign.align_variants.align_variants(aln_info_human, path_to_vcf = gnomad_vcf,  include_other_info = False, write_vcf_out = False)     
+                        except ValueError as e:
+                            print("{}\t{}".format(seg_id, str(12)), flush = True)
+                            variants_table = pd.DataFrame()
+                            log.warning("No variants were retrieved for Segment {} of {}".format(str(segment), acc))
+
+                        variants_table.to_pickle(variant_table_path)
+
+                    else:
+                        variants_table = pd.read_pickle(variant_table_path)
+
+                    ### remove ensembl SQLite from directory where this is being executed
+                    rm_sqlite(cp_path)
+                    log.debug("ENSEMBL_CACHE SQLite removed correctly")
+
+                    if variants_table.empty: # variant table is empty. E.g., P03915. Only 3 human sequences. They are all mitochondrial (not in gnomAD)
+                        pass
+
+                    else:
+                        # in order to be able to read the vcf and parse the DB, the ensemble.cache.sqlite file must be in the ./.varalign directory
+
+                        human_miss_vars = format_variant_table(variants_table, prot_cols) # GET ONLY MISSENSE VARIANTS ROWS
+                        human_miss_vars_msa_out = os.path.join(variants_dir, "{}_{}_jackhmmer_rf_human_missense_variants_seqs.sto".format(acc, str(segment)))
+
+                        miss_df_out = os.path.join(results_dir, "{}_{}_missense_df.pkl".format(acc, str(segment)))
+                        
+                        if override or not os.path.isfile(miss_df_out): # we leave it as override and not override_variants to fix the wrong pseudocounts
+                            missense_variants_df = get_missense_df(
+                                hits_aln_rf, human_miss_vars,
+                                shenkin_filt, prot_cols, human_miss_vars_msa_out
+                            )
 
                             if missense_variants_df.empty:
+                                print("{}\t{}".format(seg_id, str(13)), flush = True)
+                                log.warning("No missense variants found for MSA of Segment {} of {}".format(str(segment), acc))
                                 pass
-                                #log.info("No missense variants found for MSA of Segment {} of {}".format(str(segment), acc))
-                                    
+
                             else:
-                                # ADDS COLUMNS FROM MISSENSE DF TO SHENKIN FILT DF, CONSERVATION AND VARIATION DATA ABOUT HUMAN VARIANT SUB MSA
-                                shenkin_filt.loc[:, "human_shenkin"] = missense_variants_df.shenkin
-                                shenkin_filt.loc[:, "human_occ"] = missense_variants_df.occ
-                                shenkin_filt.loc[:, "human_gaps"] = missense_variants_df.gaps
-                                shenkin_filt.loc[:, "human_occ_pct"] = missense_variants_df.occ_pct
-                                shenkin_filt.loc[:, "human_gaps_pct"] = missense_variants_df.gaps_pct
-                                shenkin_filt.loc[:, "variants"] = missense_variants_df.variants
-                                shenkin_filt.loc[:, "oddsratio"] = missense_variants_df.oddsratio
-                                #shenkin_filt.loc[:, "log_oddsratio"] = missense_variants_df.log_oddsratio
-                                shenkin_filt.loc[:, "pvalue"] = missense_variants_df.pvalue
-                                shenkin_filt.loc[:, "se_OR"] = missense_variants_df.se_OR
+                                missense_variants_df = add_miss_class(
+                                    missense_variants_df, miss_df_out,
+                                    cons_col = "abs_norm_shenkin",
+                                )
+                                log.info("Calculated missense dataframe")
+                        else:
+                            missense_variants_df = pd.read_pickle(miss_df_out)
+                            log.debug("Loaded missense dataframe")
 
-                    else:
-                        print("{}\t{}".format(seg_id, str(14)), flush = True)
-                        log.warning("No human sequences for Segment {} of {}".format(str(segment), acc))
-                        pass
+                        if missense_variants_df.empty:
+                            pass
+                            #log.info("No missense variants found for MSA of Segment {} of {}".format(str(segment), acc))
+                                
+                        else:
+                            # ADDS COLUMNS FROM MISSENSE DF TO SHENKIN FILT DF, CONSERVATION AND VARIATION DATA ABOUT HUMAN VARIANT SUB MSA
+                            shenkin_filt.loc[:, "human_shenkin"] = missense_variants_df.shenkin
+                            shenkin_filt.loc[:, "human_occ"] = missense_variants_df.occ
+                            shenkin_filt.loc[:, "human_gaps"] = missense_variants_df.gaps
+                            shenkin_filt.loc[:, "human_occ_pct"] = missense_variants_df.occ_pct
+                            shenkin_filt.loc[:, "human_gaps_pct"] = missense_variants_df.gaps_pct
+                            shenkin_filt.loc[:, "variants"] = missense_variants_df.variants
+                            shenkin_filt.loc[:, "oddsratio"] = missense_variants_df.oddsratio
+                            shenkin_filt.loc[:, "pvalue"] = missense_variants_df.pvalue
+                            shenkin_filt.loc[:, "se_OR"] = missense_variants_df.se_OR
 
-                    shenkin_mapped_out = os.path.join(results_dir, "{}_{}_ress_consvar.pkl".format(acc, str(segment)))
-                    if override or not os.path.isfile(shenkin_mapped_out): # we leave it as override and not override_variants to fix the wrong pseudocounts
-                        aln_ids = list(set([seqid[0] for seqid in indexed_mapping_table.index.tolist() if acc in seqid[0]])) # THIS IS EMPTY IF QUERY SEQUENCE IS NOT FOUND
-                        n_aln_ids = len(aln_ids)
-                        if n_aln_ids != 1:
-                            log.warning("There are {} sequences matching accession for Segment {} in {}".format(str(n_aln_ids), str(segment), acc))
-                        mapped_data = merge_shenkin_df_and_mapping(shenkin_filt, indexed_mapping_table, aln_ids)
-                        mapped_data.to_pickle(shenkin_mapped_out)
-                    else:
-                        mapped_data = pd.read_pickle(shenkin_mapped_out)
-                    log.info("Conservation + variant data obtained for Segment {} of {}".format(str(segment), acc))
-
-                    ### GENERATE SUMMARY TABLES
-
-                    if not dssp_data.empty:
-                        mapped_data["AA"] = mapped_data.UniProt_ResNum.map(ress_AA_dict)
-                        mapped_data["RSA"] = mapped_data.UniProt_ResNum.map(ress_RSA_dict)
-                        mapped_data["SS"] = mapped_data.UniProt_ResNum.map(ress_SS_dict)
-                    else:
-                        log.warning("Results table will not contain DSSP columns for Segment {} of {}".format(str(segment), acc))
-                        pass
-
-                    mapped_data["binding_sites"] = mapped_data.UniProt_ResNum.map(bs_ress_membership_dict)
-                    mapped_data.to_pickle(final_table_out)
-
-                    log.info("Results available for Segment {} of {}".format(str(segment), acc))
                 else:
-                    log.info("Not running variants for Segment {} of {}".format(str(segment), acc))
+                    print("{}\t{}".format(seg_id, str(14)), flush = True)
+                    log.warning("No human sequences for Segment {} of {}".format(str(segment), acc))
+                    pass
 
-                #log.info("Results available for Segment {} of {}".format(str(segment), acc))
-                print("{}\t{}".format(seg_id, str(0)), flush = True)
+                shenkin_mapped_out = os.path.join(results_dir, "{}_{}_ress_consvar.pkl".format(acc, str(segment)))
+                if override or not os.path.isfile(shenkin_mapped_out): # we leave it as override and not override_variants to fix the wrong pseudocounts
+                    aln_ids = list(set([seqid[0] for seqid in indexed_mapping_table.index.tolist() if acc in seqid[0]])) # THIS IS EMPTY IF QUERY SEQUENCE IS NOT FOUND
+                    n_aln_ids = len(aln_ids)
+                    if n_aln_ids != 1:
+                        log.warning("There are {} sequences matching accession for Segment {} in {}".format(str(n_aln_ids), str(segment), acc))
+                    mapped_data = merge_shenkin_df_and_mapping(shenkin_filt, indexed_mapping_table, aln_ids)
+                    mapped_data.to_pickle(shenkin_mapped_out)
+                else:
+                    mapped_data = pd.read_pickle(shenkin_mapped_out)
+                log.info("Conservation + variant data obtained for Segment {} of {}".format(str(segment), acc))
 
-            except Exception as e:
-                print("{}\t{}".format(seg_id, str(1)), flush = True)
-                log.error("Segment {} of {} failed due to {}".format(str(segment), acc, e))
-                raise
+                ### GENERATE SUMMARY TABLES
+
+                if not dssp_data.empty:
+                    mapped_data["AA"] = mapped_data.UniProt_ResNum.map(ress_AA_dict)
+                    mapped_data["RSA"] = mapped_data.UniProt_ResNum.map(ress_RSA_dict)
+                    mapped_data["SS"] = mapped_data.UniProt_ResNum.map(ress_SS_dict)
+                else:
+                    log.warning("Results table will not contain DSSP columns for Segment {} of {}".format(str(segment), acc))
+                    pass
+
+                mapped_data["binding_sites"] = mapped_data.UniProt_ResNum.map(bs_ress_membership_dict)
+                mapped_data.to_pickle(final_table_out)
+
+                log.info("Results available for Segment {} of {}".format(str(segment), acc))
+            else:
+                log.info("Not running variants for Segment {} of {}".format(str(segment), acc))
+
+            print("{}\t{}".format(seg_id, str(0)), flush = True)
+
+        except Exception as e:
+            print("{}\t{}".format(seg_id, str(1)), flush = True)
+            log.error("Segment {} of {} failed due to {}".format(str(segment), acc, e))
+            raise
 
     log.info("THE END")
-                
+
+
+
+# /cluster/gjb_lab/2394007/LIGYSIS_PDB
+
+# python3.6 ./../../ligysis.py --transform --experimental --variants --override O55234
+

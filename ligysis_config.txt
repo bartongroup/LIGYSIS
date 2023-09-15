@@ -11,6 +11,7 @@ sifts_db_path2 = /cluster/home/2394007/JSU_LIGYSIS/./.prointvar/sifts
 swissprot = /cluster/gjb_lab/2394007/data/all_species/swissprot_15_09_2023.fasta
 ensembl_sqlite = /cluster/gjb_lab/2394007/pandda_analysis/phase5/prots/.varalign/ensembl_cache.sqlite
 all_lig_data = /cluster/gjb_lab/2394007/pandda_analysis/phase5/human_prots_data/lig_data_freq_type_size_2023_07_20.csv
+biolip_data = /cluster/gjb_lab/2394007/data/all_species/BioLip_06_09_2023.pkl
 [clustering]
 lig_clust_dist = 0.5
 lig_clust_metric = i_rel
@@ -19,7 +20,6 @@ lig_clust_method = average
 jackhmmer_n_it = 3
 MSA_fmt = stockholm
 [setup]
-main_dir = /cluster/gjb_lab/2394007/pandda_analysis/phase5/prots/
 exp_data_dir = /cluster/gjb_lab/2394007/pandda_analysis/phase5/human_prots_data/exp
 bound_mols_dir = /cluster/gjb_lab/2394007/pandda_analysis/phase5/human_prots_data/bound_mols
 bound_mol_inters_dir = /cluster/gjb_lab/2394007/pandda_analysis/phase5/human_prots_data/bound_mol_inters
