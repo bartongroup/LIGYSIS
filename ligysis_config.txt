@@ -1,0 +1,40 @@
+### FRAGSYS PDBe CONFIG FILE ###
+[binaries]
+dssp_bin = /cluster/gjb_lab/2394007/miniconda/envs/msa/bin/mkdssp
+clean_pdb_python_bin = /cluster/gjb_lab/2394007/miniconda/envs/arpeggio/bin/python
+clean_pdb_bin = /cluster/gjb_lab/2394007/pandda_analysis/clean_pdb.py
+[dbs]
+gnomad_vcf = /homes/smacgowan/NOBACK/resources/gnomad/gnomad.exomes.r2.0.1.sites.vcf.gz
+pdb_db_path = /cluster/gjb_lab/db/NOBACK/mirrors/pdb/data/structures/divided/pdb/
+sifts_db_path = /cluster/gjb_lab/db/NOBACK/local_databases/sifts_current/split_xml/
+sifts_db_path2 = /cluster/home/2394007/JSU_LIGYSIS/./.prointvar/sifts
+swissprot = /cluster/gjb_lab/2394007/data/all_species/swissprot_15_09_2023.fasta
+ensembl_sqlite = /cluster/gjb_lab/2394007/pandda_analysis/phase5/prots/.varalign/ensembl_cache.sqlite
+all_lig_data = /cluster/gjb_lab/2394007/pandda_analysis/phase5/human_prots_data/lig_data_freq_type_size_2023_07_20.csv
+[clustering]
+lig_clust_dist = 0.5
+lig_clust_metric = i_rel
+lig_clust_method = average
+[msa]
+jackhmmer_n_it = 3
+MSA_fmt = stockholm
+[setup]
+main_dir = /cluster/gjb_lab/2394007/pandda_analysis/phase5/prots/
+exp_data_dir = /cluster/gjb_lab/2394007/pandda_analysis/phase5/human_prots_data/exp
+bound_mols_dir = /cluster/gjb_lab/2394007/pandda_analysis/phase5/human_prots_data/bound_mols
+bound_mol_inters_dir = /cluster/gjb_lab/2394007/pandda_analysis/phase5/human_prots_data/bound_mol_inters
+supp_mats_dir = /cluster/gjb_lab/2394007/pandda_analysis/phase5/human_prots_data/supp_mats
+ligand_pdbs_dir = /cluster/gjb_lab/2394007/pandda_analysis/phase5/human_prots_data/lig_pdbs
+segment_data_dir = /cluster/gjb_lab/2394007/pandda_analysis/phase5/human_prots_data/segment_data
+struc_fmt = pdb
+[thresholds]
+MES_t = 1.0
+cons_t_h = 75
+cons_t_l = 25
+max_retry = 3
+sleep_time = 0.5
+lig_max_freq = 4.99
+lig_min_freq = 0.00
+lig_min_atoms = 6
+lig_max_atoms = 99
+lig_types = NON-POLYMER,non-polymer
