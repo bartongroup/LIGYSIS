@@ -10,7 +10,6 @@ import math
 import time
 import scipy
 import pickle
-import pickle5 as p5
 import shutil
 import logging
 import argparse
@@ -49,7 +48,7 @@ log = logging.getLogger("LIGYSIS")
 ## READ CONFIG FILE
 
 config = configparser.ConfigParser()
-config.read("./ligysis_config.txt") # assuming this program is being executed one level above where this script and its config file are located
+config.read("./../ligysis_config.txt") # assuming this program is being executed one level above where this script and its config file are located
 
 dssp_bin = config["binaries"].get("dssp_bin")                               # location of DSSP binary.
 clean_pdb_python_bin = config["binaries"].get("clean_pdb_python_bin")       # location of python binary to run clean_pdb.py.
@@ -101,27 +100,10 @@ aas_1l= [
     "-"
 ]
 
-#simple_ions = [
-#    "ZN", "MN", "CL", "MG", "CD", "NI", "NA", "IOD", "CA", "BR", "XE", "TB", #FE, K, CO, NO3, AZI, R
-#]
-
-#acidic_ions = [
-#    "PO4", "ACT", "SO4", "MLI", "CIT", "ACY", "VO4", "WO4"
-#]
-
-#non_relevant_ligs_manual = [
-#    "DMS", "EDO", "HOH", "TRS", "GOL", "OGA", "FMN", "PG4", "PGR",
-#    "MPD", "TPP", "MES", "PLP", "HYP", "CSO", "UNX", "EPE", "PEG",
-#    "PGE", "DOD", "SUI", "BEN", "BOG"
-#]
-
-#non_relevant = non_relevant_ligs_manual + simple_ions + acidic_ions
-
 chimera_cmd_args = [
     "ksdssp", "background solid white", "~dis",
     "sel ~@/color=white", "dis sel", "namesel lois",
     "~sel"
-    #"set silhouette", #"set silhouettewidth 3", #"~rib", "rib #0", 
 ]
 
 exp_data_cols = [
@@ -145,7 +127,8 @@ consvar_class_colours = [
 
 def get_status_code_data(status_code_file):
     """
-    doc
+    Reads status code file and returns dictionaries
+    for accession and segment status codes.
     """
     accs_status_dict = {}
     segs_status_dict = {}
@@ -160,8 +143,7 @@ def get_status_code_data(status_code_file):
 
 def cp_sqlite(wd, og_path = ensembl_sqlite_path):
     """
-    copies ensembl_cache.sqlite
-    to execution directory.
+    Copies ensembl_cache.sqlite to execution directory.
     """
     hidden_var_dir = os.path.join(wd, ".varalign")
     sqlite_name = os.path.basename(og_path)
@@ -172,11 +154,10 @@ def cp_sqlite(wd, og_path = ensembl_sqlite_path):
     cp_path = os.path.join(hidden_var_dir, sqlite_name)
     shutil.copy(og_path, cp_path)
     return cp_path
-    
+
 def rm_sqlite(cp_path):
     """
-    removes ensembl_cache.sqlite
-    from execution directory.
+    Removes ensembl_cache.sqlite from execution directory.
     """
     hidden_var_dir = os.path.dirname(cp_path)
     os.remove(cp_path)
@@ -184,14 +165,14 @@ def rm_sqlite(cp_path):
 
 def dump_pickle(data, f_out):
     """
-    dumps pickle
+    Dumps data to pickle.
     """
     with open(f_out, "wb") as f:
         pickle.dump(data, f)
-        
+
 def load_pickle(f_in):
     """
-    loads pickle
+    Loads data from pickle.
     """
     with open(f_in, "rb") as f:
         data = pickle.load(f)
@@ -201,7 +182,7 @@ def load_pickle(f_in):
 
 def run_clean_pdb(pdb_path):
     """
-    runs pdb_clean.py to prepare files for arpeggio
+    Runs pdb_clean.py.
     """
     args = [
         clean_pdb_python_bin, clean_pdb_bin, pdb_path
@@ -231,7 +212,7 @@ def fmt_mat_in(mat_in):
 
 def get_segments_dict(supp_data, acc):
     """
-    given a superimposition table for a protein, creates
+    Given a superimposition table for a protein, creates
     a dictionary with information about the different
     structure coverage segments.
     """
@@ -249,7 +230,7 @@ def get_segments_dict(supp_data, acc):
 
 def get_segment_membership(supp_data, acc):
     """
-    given a superimposition table for a protein, creates
+    Given a superimposition table for a protein, creates
     a dictionary that indicates which pdb chains are included
     within each structural coverage segment.
     """
@@ -319,7 +300,7 @@ def pdb_transform(pdb_path, output_path, matrix_raw, chain_id, fmt = struc_fmt):
 
 def transform_all_files(pdb_files, matrices, chains, raw_dir, clean_dir, trans_dir):
     """
-    given a set of pdb files, matrices, and chains, uncompresses, cleans and transforms
+    Given a set of pdb files, matrices, and chains, uncompresses, cleans and transforms
     the coordinates according to a transformation matrix
     """
     for i, pdb_in in enumerate(pdb_files):
@@ -379,7 +360,7 @@ def get_experimental_data(pdb_ids, exp_data_dir, out):
                 continue
     master_exp_data_df = pd.concat(exp_data_dfs)
     master_exp_data_df.reset_index(drop = True, inplace = True)
-    master_exp_data_df.to_pickle(out)#, index = False)
+    master_exp_data_df.to_pickle(out)
     return master_exp_data_df
 
 ## SIMPLIFYING PDB FILES
@@ -467,7 +448,7 @@ def get_lig_pdbs(acc):
 
 def get_lig_lab_dict(df_mols):
     """
-    creates a dictionary with bm_ids as keys,
+    Creates a dictionary with bm_ids as keys,
     and ligand names as values given a dataframe
     indicating bound molecules in a PDB.
     """
@@ -483,7 +464,6 @@ def get_bound_mols(pdb_id, bound_mols_dir):
     and returns a formatted dataframe of the bound molecules
     of a given pdb structure.
     """
-
     try:
         bound_mols_df = pd.read_json("https://www.ebi.ac.uk/pdbe/graph-api/pdb/bound_molecules/{}".format(pdb_id), convert_axes = False, dtype = False)
     except:
@@ -513,7 +493,6 @@ def get_bound_mol_inters(pdb_id, bm_id, lig_lab_dict, bound_mol_inters_dir):
     else:
         bound_inters_df = pd.read_json("https://www.ebi.ac.uk/pdbe/graph-api/pdb/bound_molecule_interactions/{}/{}".format(pdb_id, bm_id), convert_axes = False, dtype = False) # I THINK WE SHOULD SAVE THESE
         bound_inters_df.to_json(bound_mol_inters_out)
-    #print(pdb_id, bm_id)
     bound_inters_dff = pd.DataFrame(bound_inters_df.loc[0, pdb_id]["interactions"])
     begin_rws, end_rws, inter_rws = [[], [], []]
     for i in range(len(bound_inters_dff)):
@@ -545,7 +524,6 @@ def get_fingerprints(pdb_id, bound_mols_dir, bound_mol_inters_dir, out = None):
     trying_counter = {bm_id: 1 for bm_id in bm_ids}
     bm_ids_copy = copy.deepcopy(bm_ids)
     while bm_ids_copy:
-    #for bm_id in bm_ids:
         bm_id = bm_ids_copy[0]
         try:
             if trying_counter[bm_id] > max_retry:
@@ -598,10 +576,6 @@ def filter_fingerprints(pdb_id, lig_lab_inters, acc, segment_i_chains):
         n_chains = len(inter_chains)
         if n_chains > 1:
             log.debug("{} interacts with {} chains in {}".format(lig_name, n_chains, pdb_id))
-
-        #structure_data = pd.read_json("https://www.ebi.ac.uk/pdbe/graph-api/mappings/uniprot_segments/{}".format(pdb_id), convert_axes = False).loc["UniProt", pdb_id] # new graph-api, as slr-based would not retrieve all the data for big complexes
-        #t_chains = [v["chain_id"] for v in structure_data[acc]["mappings"]]
-        #t_chains = [ch.split("_")[0] for ch in t_chains]
         t_chains = [ch.split("_")[1] for ch in segment_i_chains if pdb_id in ch]
         lig_lab_inters_filt[lig_name] = [inter for inter in lig_lab_inters_filt[lig_name] if inter[2].split("_")[0] in t_chains]
         if len(lig_lab_inters_filt[lig_name]) == 0:
@@ -636,7 +610,6 @@ def get_fingerprints_dict(acc, fps_dir, out, all_ligs_pdbs, segment_i_chains, bo
             else:
                 lig_lab_inters_filt = filter_fingerprints(pdb_id, lig_lab_inters, acc, segment_i_chains)
                 all_fingerprints[pdb_id] = lig_lab_inters_filt
-                #all_ligs_pdbs_copy.remove(pdb_id) # trying while loop
 
         except HTTPError as e:
             all_fingerprints[pdb_id] = {}
@@ -653,7 +626,7 @@ def get_labs(fingerprints_dict):
     Returns all ligand labels from fingerprints dict.
     """
     return [k1 + "_" + k2 for k1, v1 in fingerprints_dict.items() for k2 in v1.keys()]
-            
+
 def get_inters(fingerprints_dict):
     """
     Returns all ligand fingerprints from fingerprints dict.
@@ -711,7 +684,7 @@ def get_mapping_from_sifts(pdb_id):
     """
     Given a PDB ID, returns a dictionary with the PDB-UniProt
     residue mapping for each chain. It does this by parsing
-    a SIFTs .xml.gz file via ProIntVar
+    a SIFTs .xml.gz file via ProIntVar.
     """
     input_sifts = os.path.join(sifts_db_path, "{}/{}.xml.gz".format(pdb_id[1:3], pdb_id))
 
@@ -757,9 +730,6 @@ def get_up_mapping_from_prointvar(fps_dict, mappings_dict):
             
             v2_k = pdb_id + "_" + lig_name
             fps_sifted_dict_v2[v2_k] = []
-            #ld = lig_name.split("_") # stands for lig data
-            #lig_id, lig_resnum, lig_chainid = [ld[0], ld[1], ld[2]] # not sure why sometimes chain ID is A_1, and sometimes just A. Q9UKK9, 5qjj.
-            
             lig_finger = fps_dict[pdb_id][lig_name]
 
             fps_sifted_dict[pdb_id][lig_name] = []
@@ -781,7 +751,7 @@ def get_up_mapping_from_prointvar(fps_dict, mappings_dict):
 
 def get_mol_type_dict(pdb_id):
     """
-    for a given PDB, returns a dictionary
+    For a given PDB, returns a dictionary
     where keys are chain ids, and values
     is a list containing the types of the
     molecules within that chain.
@@ -819,17 +789,15 @@ def get_chimera_data(cluster_id_dict):
         ld = k.split("_") # stands for lig data
         pdb_id, lig_resname, lig_resnum, lig_chain_id = [ld[0], ld[1], ld[2], ld[3]] # not sure why sometimes chain ID is A_1, and sometimes just A. Q9UKK9, 5qjj.
             
-        #pdb_id, lig_resname, lig_resnum, lig_chain_id, _ = k.split("_")
         bs_id = str(v)
         pdb_path = "{}_{}_trans.pdb".format(pdb_id, lig_chain_id)
-        chimera_atom_spec = (":"+ str(lig_resnum) +
-                         "."+ lig_chain_id +
-                         "&#/name==" + pdb_path)
-
+        chimera_atom_spec = (
+            ":"+ str(lig_resnum) +
+            "."+ lig_chain_id +
+            "&#/name==" + pdb_path
+        )
         chimera_atom_specs.append(chimera_atom_spec)
-        #bs_ids.append(bs_id)
-        #pdb_paths.append(pdb_path)
-    return chimera_atom_specs#, bs_ids, pdb_paths
+    return chimera_atom_specs
 
 def write_chimera_attr(attr_out, chimera_atom_specs, cluster_ids):
     """
@@ -862,9 +830,9 @@ def write_chimera_command(chimera_script_out, cmds, cluster_ids, sample_colors):
 
 ## CLUSTER ANALYSIS UTILS
 
-def get_cluster_membership(cluster_id_dict):#, out = None):
+def get_cluster_membership(cluster_id_dict):
     """
-    creates a dictionary indicating to which cluster
+    Creates a dictionary indicating to which cluster
     each ligand binds to.
     """
     membership_dict = {}
@@ -872,16 +840,11 @@ def get_cluster_membership(cluster_id_dict):#, out = None):
         if v not in membership_dict:
             membership_dict[v] = []
         membership_dict[v].append(k)
-
-    #if out != None:
-    #    with open(out, "wb") as f:
-    #        pickle.dump(membership_dict, f)
-
     return membership_dict
 
-def get_all_cluster_ress(membership_dict, fingerprints_dict):#, out = None):
+def get_all_cluster_ress(membership_dict, fingerprints_dict):
     """
-    given a membership dict and a fingerprint dictionary,
+    Given a membership dict and a fingerprint dictionary,
     returns a dictionary that indicates the protein residues
     forming each binding site.
     """
@@ -892,16 +855,11 @@ def get_all_cluster_ress(membership_dict, fingerprints_dict):#, out = None):
         for v1 in v:
             binding_site_res_dict[k].extend(fingerprints_dict[v1])
     binding_site_res_dict = {k: sorted(list(set(v))) for k, v in binding_site_res_dict.items()}
-
-    #if out != None:
-    #    with open(out, "wb") as f:
-    #        pickle.dump(binding_site_res_dict, f)
-
     return binding_site_res_dict
 
-def get_residue_bs_membership(cluster_ress):#, out = None):
+def get_residue_bs_membership(cluster_ress):
     """
-    returns a dictionary indicating to which ligand binding
+    Returns a dictionary indicating to which ligand binding
     site each ligand binding residue is found in. A residue
     might contribute to more than one adjacent binding site.
     """
@@ -916,18 +874,13 @@ def get_residue_bs_membership(cluster_ress):#, out = None):
         for k, v in cluster_ress.items():
             if bs_res in v:
                 bs_ress_membership_dict[bs_res].append(k) # which binding site each residue belongs to
-                
-    #if out != None:
-    #    with open(out, "wb") as f:
-    #        pickle.dump(bs_ress_membership_dict, f)
-    
     return bs_ress_membership_dict
 
 ## DSSP
 
 def run_dssp(pdb_path, trans_dir, dssp_dir):
     """
-    runs DSSP unbound, and saves formatted resulting output dataframe.
+    Runs DSSP unbound, and saves formatted resulting output dataframe.
     pdb_path is a relative path to input pdb file, which absoulute path
     results from joining it with trans_dir.
     """
@@ -950,7 +903,7 @@ def run_dssp(pdb_path, trans_dir, dssp_dir):
 
 def get_dssp_data(trans_dir, dssp_dir, sifts_mapping_dict, out):
     """
-    given a dir with transformed files, output dssp dir, and
+    Given a dir with transformed files, output dssp dir, and
     sifts mapping dictionary, runs DSSP for all structures and
     returns a dataframe with DSSP data from all structures.
     """
@@ -1004,7 +957,7 @@ def get_dssp_data(trans_dir, dssp_dir, sifts_mapping_dict, out):
 
 def get_best_from_segment_data(segment_data):
     """
-    gets best pdb_id and chain_id for a given
+    Gets best pdb_id and chain_id for a given
     segment of structural coverage of a protein
     from the superimposition data from PDBe-KB.
     """
@@ -1018,7 +971,7 @@ def get_best_from_segment_data(segment_data):
 
 def get_best_seq_SOLR(best_pdb_id, best_chain_id):
     """
-    obtains the sequence for the best PDB,
+    Obtains the sequence for the best PDB,
     and best chain for a given accession. The
     pdb_id and chain_id passed must already be
     the best representations for the protein.
@@ -1030,7 +983,7 @@ def get_best_seq_SOLR(best_pdb_id, best_chain_id):
 
 def get_best_struct_seq(acc, segment, out, best = None):
     """
-    using pdbe APIs, gets the sequence from the best
+    Using pdbe APIs, gets the sequence from the best
     structure for a given protein and prints it in
     fasta format.
     """
@@ -1071,17 +1024,17 @@ def get_best_struct_seq(acc, segment, out, best = None):
 
 def jackhmmer(seq, hits_out, hits_aln, n_it = jackhmmer_n_it, seqdb = swissprot):
     """
-    runs jackhmmer on an input seq for a number of iterations and returns exit code, should be 0 if all is ok
+    Runs jackhmmer on an input seq for a number of iterations and returns exit code, should be 0 if all is ok.
     """
     args = ["jackhmmer", "--acc", "-N", str(n_it), "-o", hits_out, "-A", hits_aln, seq, seqdb]
-    exit_code = os.system(" ".join(args))
+    cmd = " ".join(args)
+    exit_code = os.system(cmd)
     if exit_code != 0:
-        log.critical("Jackmmer did not work with command: {}".format(pdb_path, " ".join(args)))
-    #return
+        log.critical("Jackmmer did not work with command: {}".format(cmd))
 
 def add_acc2msa(aln_in, aln_out, query_id, fmt_in = MSA_fmt):
     """
-    modifies AC field of jackhmmer alignment in stockholm format.
+    Modifies AC field of jackhmmer alignment in stockholm format.
     
     :param aln_in: path of input alignment
     :type aln_in: str, required
@@ -1102,7 +1055,7 @@ def add_acc2msa(aln_in, aln_out, query_id, fmt_in = MSA_fmt):
 
 def get_target_prot_cols(msa_in, query_id, msa_fmt = MSA_fmt): 
     """
-    returns list of MSA col idx that are popualted on the protein target
+    Returns list of MSA col idx that are popualted on the protein target.
     """
     seqs = [str(rec.seq) for rec in Bio.SeqIO.parse(msa_in, msa_fmt) if rec.id == query_id]
     occupied_cols = [i+1 for seq in seqs for i, el in enumerate(seq) if el != "-"]
@@ -1110,7 +1063,7 @@ def get_target_prot_cols(msa_in, query_id, msa_fmt = MSA_fmt):
 
 def get_human_subset_msa(aln_in, human_msa_out, fmt_in = MSA_fmt):
     """
-    creates a subset MSA containing only human sequences
+    Creates a subset MSA containing only human sequences.
     """
     msa = Bio.AlignIO.read(aln_in, fmt_in)
     human_recs = []
@@ -1121,15 +1074,14 @@ def get_human_subset_msa(aln_in, human_msa_out, fmt_in = MSA_fmt):
 
 def generate_subset_aln(aln_in, aln_fmt, df, aln_out = None):
     """
-    creates a subset MSA containing only human sequences that present
-    missense variants and returns the path of such MSA
+    Creates a subset MSA containing only human sequences that present
+    missense variants and returns the path of such MSA.
     """
     seqs_ids = df.source_id.unique().tolist()
     aln = Bio.SeqIO.parse(aln_in, aln_fmt)
     variant_seqs = [rec for rec in aln if rec.id in seqs_ids]
     n_variant_seqs = len(variant_seqs)
     if n_variant_seqs == 0:
-        #log.critical("No variants were found in {}. Finishing here".format(aln_in))
         return ""
     else:
         log.info("There are {} sequences with variants for {}".format(str(n_variant_seqs), aln_in))
@@ -1143,7 +1095,7 @@ def generate_subset_aln(aln_in, aln_fmt, df, aln_out = None):
 
 def get_freqs(i_col, col):
     """
-    calculates amino acid frequences for a given MSA column
+    Calculates amino acid frequences for a given MSA column.
     """
     abs_freqs = {
         "A": 0, "R": 0, "N": 0, "D": 0, "C": 0, "Q": 0, "E": 0, "G": 0, "H": 0, "I": 0,
@@ -1161,18 +1113,15 @@ def get_freqs(i_col, col):
             if aa not in non_standard_aas:
                 non_standard_aas[aa] = 0
             non_standard_aas[aa] += 1
-        #if aa not in ["-", "X", "B"]:
-        #    abs_freqs[aa] += 1
     all_ns_aas = sum(non_standard_aas.values())
     if all_ns_aas != 0:
         log.warning("Column {} presents non-standard AAs: {}".format(str(i_col), non_standard_aas))
     rel_freqs = {k: v/(len(col) - all_ns_aas) for k, v in abs_freqs.items()}
-    #rel_freqs = {k: v/(len(col)-(col.count("-") + col.count("X") + col.count("B"))) for k, v in abs_freqs.items()}
     return rel_freqs
 
 def get_entropy(freqs):
     """
-    calculates Shannon's entropy from a set of aa frequencies
+    Calculates Shannon's entropy from a set of aa frequencies.
     """
     S = 0
     for f in freqs.values():
@@ -1182,16 +1131,16 @@ def get_entropy(freqs):
 
 def get_shenkin(i_col, col):
     """
-    calculates Shenkin score for an MSA column
+    Calculates Shenkin score for an MSA column.
     """
     S = get_entropy(get_freqs(i_col, col))
     return round((2**S)*6,2)
 
 def in_columns(aln_in, infmt):
     """
-    returns dictionary in which column idx are the key
+    Returns dictionary in which column idx are the key
     and a list containing all aas aligned to that column
-    is the value
+    is the value.
     """
     aln = Bio.AlignIO.read(aln_in, infmt)
     n_cols = len(aln[0])
@@ -1206,8 +1155,8 @@ def in_columns(aln_in, infmt):
 
 def get_stats(col):
     """
-    for a given MSA column, calculates some basic statistics
-    such as column residue occupancy ang gaps
+    For a given MSA column, calculates some basic statistics
+    such as column residue occupancy ang gaps.
     """
     n_seqs = len(col)
     gaps = col.count("-")
@@ -1218,8 +1167,8 @@ def get_stats(col):
 
 def calculate_shenkin(aln_in, aln_fmt, out = None):
     """
-    given an MSA, calculates Shenkin ans occupancy, gap
-    percentage for all columns
+    Given an MSA, calculates Shenkin ans occupancy, gap
+    percentage for all columns.
     """
     cols = in_columns(aln_in, aln_fmt)
     scores = []
@@ -1236,12 +1185,12 @@ def calculate_shenkin(aln_in, aln_fmt, out = None):
         gaps_pct.append(stats[3])
     df = pd.DataFrame(list(zip(list(range(1,len(scores)+1)),scores, occ,gaps, occ_pct, gaps_pct)), columns = ["col", "shenkin", "occ", "gaps", "occ_pct", "gaps_pct"])
     if out != None:
-        df.to_pickle(out)#, index = False)
+        df.to_pickle(out)
     return df
 
 def format_shenkin(shenkin, prot_cols, out = None):
     """
-    formats conservation dataframe and also
+    Formats conservation dataframe and also
     calculates two normalised versions of it.
     """
     shenkin_filt = shenkin[shenkin.col.isin(prot_cols)].copy()
@@ -1258,9 +1207,9 @@ def format_shenkin(shenkin, prot_cols, out = None):
 
 def format_variant_table(df, col_mask, vep_mask = ["missense_variant"], tab_format = "gnomad"):
     """
-    formats variant table, by gettint rid of empty rows that are not human sequences,
+    Formats variant table, by gettint rid of empty rows that are not human sequences,
     changning column names and only keeping those variants that are of interest and
-    are present in columns of interest
+    are present in columns of interest.
     """
     df_filt = df.copy(deep = True)
     df_filt.reset_index(inplace = True)
@@ -1275,7 +1224,7 @@ def format_variant_table(df, col_mask, vep_mask = ["missense_variant"], tab_form
 
 def get_missense_df(aln_in, variants_df, shenkin_aln, prot_cols, aln_out, aln_fmt = MSA_fmt, get_or = True):
     """
-    generates a dataframe for the subset of human sequences with variants
+    Generates a dataframe for the subset of human sequences with variants
     mapping to them. Calculates shenkin, and occupancy data, and then
     enrichment in variants.
     """
@@ -1289,8 +1238,6 @@ def get_missense_df(aln_in, variants_df, shenkin_aln, prot_cols, aln_out, aln_fm
     vars_df.columns = ["col", "variants"]
     merged = pd.merge(variants_aln_info, vars_df, on = "col", how = "left")
     merged.index = range(1, len(vars_df) + 1)
-    #merged.variants = merged.variants + 1 #pseudo count               ### TODO: NEED TO REMOVE THIS
-    #merged.occ = merged.occ + 1 #pseudo count                         ### TODO: NEED TO REMOVE THIS
     merged["shenkin"] = shenkin_aln["shenkin"]
     merged["rel_norm_shenkin"] = shenkin_aln["rel_norm_shenkin"] 
     merged["abs_norm_shenkin"] = shenkin_aln["abs_norm_shenkin"]
@@ -1300,12 +1247,12 @@ def get_missense_df(aln_in, variants_df, shenkin_aln, prot_cols, aln_out, aln_fm
     else:
         return merged
 
-def add_miss_class(df, miss_df_out = None, cons_col = "shenkin", MES_t = MES_t, cons_t = cons_ts, colours = consvar_class_colours):
+def add_miss_class(df, miss_df_out = None, cons_col = "shenkin", MES_t = MES_t, cons_ts = cons_ts, colours = consvar_class_colours):
     """
-    adds two columns to missense dataframe. These columns will put columns
+    Adds two columns to missense dataframe. These columns will put columns
     into classes according to their divergence and missense enrichment score.
     It also adds a column that will help colour MSA columns according to their
-    classifications
+    classifications.
     """
     for i in df.index:
         if df.loc[i, cons_col] <= cons_ts[0] and df.loc[i, "oddsratio"] < MES_t:
@@ -1318,7 +1265,6 @@ def add_miss_class(df, miss_df_out = None, cons_col = "shenkin", MES_t = MES_t, 
             df.loc[i, "miss_class"] = "UME"
         else:
             df.loc[i, "miss_class"] = "None"
-           
     coloring = {
         "CMD": colours[0],
         "CME": colours[1],
@@ -1329,12 +1275,12 @@ def add_miss_class(df, miss_df_out = None, cons_col = "shenkin", MES_t = MES_t, 
     df["miss_color"] =  df.miss_class.map(coloring)
     
     if miss_df_out != None:
-            df.to_pickle(miss_df_out)#, index = False)
+            df.to_pickle(miss_df_out)
     return df
 
 def merge_shenkin_df_and_mapping(shenkin_df, mapping_df, aln_ids):
     """
-    merges conservation, and variation table with MSA-UniProt
+    Merges conservation, and variation table with MSA-UniProt
     mapping table, so conservation and variation data
     are mapped to UniProt residues.
     """
@@ -1354,8 +1300,8 @@ def merge_shenkin_df_and_mapping(shenkin_df, mapping_df, aln_ids):
 
 def get_OR(df, variant_col = "variants"):
     """
-    calculates OR, ln(OR) and associated p-value and CI,
-    given a missense dataframe with variants and occupancy
+    Calculates OR, ln(OR) and associated p-value and CI,
+    given a missense dataframe with variants and occupancy.
     """
     tot_occ = sum(df.occ)
     tot_vars = sum(df[variant_col])
@@ -1379,29 +1325,8 @@ def get_OR(df, variant_col = "variants"):
                 log.debug("0 variants. Adding 0.5 to each cell")
             oddsr, pval = stats.fisher_exact([[i_vars, rest_vars], [i_occ, rest_occ]])
             vals = [i_vars, rest_vars, i_occ, rest_occ]
-            #try:
             se_or = 1.96*(math.sqrt(sum(list(map((lambda x: 1/x), vals)))))
-            #except:
-                
-                #print("HEY, SOMETHING WRONG HERE WHEN CALCULATING SE(OR)!")
-                #print("Variants at col i = {}".format(str(i_vars)))
-                #print("Variants at other columns = {}".format(str(rest_vars)))
-                #print("Occupancy at col i = {}".format(str(i_occ)))
-                #print("Occupancy at other cols = {}".format(str(rest_occ)))
-                #se_logor = 1.96*(math.sqrt(sum(list(map((lambda x: 1/(x+0.25)), vals))))) # adding 0.25 to each cell to calculate SE
-            #lo_95ci_or = math.e**(math.log(oddsr) - se_logor)
-            #hi_95ci_or = math.e**(math.log(oddsr) + se_logor)
-            #try:
-            #    logor = math.log(oddsr)
-            #except:
-            #    print("HEY, SOMETHING WRONG HERE WHEN CALCULATING ln(OR)!")
-            #    print("Variants at col i = {}".format(str(i_vars)))
-            #    print("Variants at other columns = {}".format(str(rest_vars)))
-            #    print("Occupancy at col i = {}".format(str(i_occ)))
-            #    print("Occupancy at other cols = {}".format(str(rest_occ)))
-            #    logor = math.log(oddsr + 0.01) # if OR = 0, MES = -4.6
         df.loc[i, "oddsratio"] = round(oddsr, 2)
-        #df.loc[i, "log_oddsratio"] = round(logor, 2)
         df.loc[i, "pvalue"] = round(pval, 2)
         df.loc[i, "se_OR"] = round(se_or, 2)
     return df
@@ -1821,7 +1746,7 @@ if __name__ == '__main__': ### command to run form command line: python3.6 frags
                 ### GETTING PDB-UNIPROT SIFTS MAPPING
 
                 sifts_out = os.path.join(results_dir, "{}_{}_strs_sifts.pkl".format(acc, str(segment)))
-              
+
                 if override or not os.path.isfile(sifts_out):
                     sifts_mapping = {}
                     for pdb_id in all_ligs_pdbs_segment: # before it was just pdb_ids, so no information would be retrieved of those with no structure in local PDB copy
@@ -2034,7 +1959,7 @@ if __name__ == '__main__': ### command to run form command line: python3.6 frags
                     else:
                         ress_SS_dict = load_pickle(SS_dict_out)
                         #log.info("Residue SS dictionary read")
-         
+
                     if override or not os.path.isfile(rsa_profs_out):
                         #rsa_profiles = {k: [ress_RSA_dict[v2] for v2 in v] for k, v in cluster_ress.items()}
                         rsa_profiles = {}
