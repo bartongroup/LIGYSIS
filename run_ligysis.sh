@@ -23,4 +23,4 @@ fi
 cd ${dest}
 
 # Run ligysis for each protein within its own directory
-python3.6 ./scripts/ligysis.py --transform --experimental --variants --override --up_acc ${UP_ACC}
+python3.6 ./../../ligysis.py --transform --experimental --variants --override ${UP_ACC}
