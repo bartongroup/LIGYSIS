@@ -44,41 +44,37 @@ config = configparser.ConfigParser()
 config_path = os.path.join(BASE_DIR, "ligysis_config.txt")
 config.read(config_path) # assuming this program is being executed one level above where this script and its config file are located
 
-dssp_bin = config["binaries"].get("dssp_bin")                               # location of DSSP binary.
-clean_pdb_python_bin = config["binaries"].get("clean_pdb_python_bin")       # location of python binary to run clean_pdb.py.
 clean_pdb_bin = config["binaries"].get("clean_pdb_bin")                     # location of clean_pdb.py.
+clean_pdb_python_bin = config["binaries"].get("clean_pdb_python_bin")       # location of python binary to run clean_pdb.py.
+dssp_bin = config["binaries"].get("dssp_bin")                               # location of DSSP binary.
+biolip_data = config["dbs"].get("biolip_data")                              # location of dictionary containing information about ligands in Biolip.
+ensembl_sqlite_path = config["dbs"].get("ensembl_sqlite")                   # location of a local copy of ENSEMBL mappings from UniProt Accession to genome (sqlite)
 gnomad_vcf = config["dbs"].get("gnomad_vcf")                                # location of gnomAD VCF. This database is not updated.
 pdb_db_path = config["dbs"].get("pdb_db_path")                              # location of local copy of PDB. This should be updated, but it might be missing some files.
-swissprot = config["dbs"].get("swissprot")                                  # location of MY local SwissProt copy. This database is not updated, current version is Nov 2021.
 sifts_db_path = config["dbs"].get("sifts_db_path")                          # location of a local copy of SIFTS. This database might not be updated, current version is Feb 2023.
 sifts_db_path2 = config["dbs"].get("sifts_db_path2")                        # location of a local backup copy of SIFTS. This database might not be updated, current version is Jul 2023.
-ensembl_sqlite_path = config["dbs"].get("ensembl_sqlite")                   # location of a local copy of ENSEMBL mappings from UniProt Accession to genome (sqlite)
-#ALL_LIG_DATA_path = config["dbs"].get("all_lig_data")                       # location of table containing molecule type, number of atoms, and frequency of ligands in human structures.
-#main_dir = config["setup"].get("main_dir")                                  # location of main directory where all subdirectories will be created.
-exp_data_dir = config["setup"].get("exp_data_dir")                          # location of directory where experimental data is saved for structures (origin PDBe REST API).
-bound_mols_dir = config["setup"].get("bound_mols_dir")                      # location of directory where bound molcules data is saved for structures (origin PDBe REST API). 
-supp_mats_dir = config["setup"].get("supp_mats_dir")                        # location of directory where superposition data is saved for structures (origin PDBe REST API).
+swissprot = config["dbs"].get("swissprot")                                  # location of MY local SwissProt copy. This database is not updated, current version is Nov 2021.
+MSA_fmt = config["formats"].get("MSA_fmt")                                  # MSA format used for all calculations. Currently only working with Stockholm format.
+struc_fmt = config["formats"].get("struc_fmt")                              # structure format used for all calculations. Currently, only working format is PDB.
+experimental_methods = config["other"].get("experimental_methods")          # experimental method used to determine structures. Default is X-ray.
+experimental_methods_list = experimental_methods.split(",")                 # splits string into list of strings.
+lig_clust_method = config["other"].get("lig_clust_method")                  # linkage method used for the hierarchical clustering.
+lig_clust_metric = config["other"].get("lig_clust_metric")                  # similarity metric used defined for ligand binding site definition (later transformed into distance metric).
 bound_mol_inters_dir = config["setup"].get("bound_mol_inters_dir")          # location of directory where bound molecule interactions data is saved for structures (origin PDBe REST API).
+bound_mols_dir = config["setup"].get("bound_mols_dir")                      # location of directory where bound molcules data is saved for structures (origin PDBe REST API). 
+exp_data_dir = config["setup"].get("exp_data_dir")                          # location of directory where experimental data is saved for structures (origin PDBe REST API).
 ligand_pdbs_dir = config["setup"].get("ligand_pdbs_dir")                    # location of directory where ligand PDBs data is saved for each accession (origin PDBe REST API).
 segment_data_dir = config["setup"].get("segment_data_dir")                  # location of directory where segment data is saved for each accession (origin PDBe REST API).
-struc_fmt = config["setup"].get("struc_fmt")                                # structure format used for all calculations. Currently, only working format is PDB.
-lig_clust_dist = float(config["clustering"].get("lig_clust_dist"))          # distance threshold where hierarchical tree is cut for ligand binding site definition.
-lig_clust_metric = config["clustering"].get("lig_clust_metric")             # similarity metric used defined for ligand binding site definition (later transformed into distance metric).
-lig_clust_method = config["clustering"].get("lig_clust_method")             # linkage method used for the hierarchical clustering
-jackhmmer_n_it = int(config["msa"].get("jackhmmer_n_it"))                   # number of iterations to perform on remote-homologue search by jackHMMR
-MSA_fmt = config["msa"].get("MSA_fmt")                                      # MSA format used for all calculations. Currently only working with Stockholm format.
-MES_t = float(config["thresholds"].get("MES_t"))                            # Missense Enrichment Score threshold to consider a position missense-depleted, or enriched.
+supp_mats_dir = config["setup"].get("supp_mats_dir")                        # location of directory where superposition data is saved for structures (origin PDBe REST API).
 cons_t_h = float(config["thresholds"].get("cons_t_h"))                      # conservation score upper threshold to consider position highly divergent. Currently only working with Shenkin divergence score.
 cons_t_l = float(config["thresholds"].get("cons_t_l"))                      # conservation score lower threshold to consider position highly conserved. Currenyly only working with Shenkin divergence score.
 cons_ts = [cons_t_l, cons_t_h]                                              # groups both thresholds into a list.
+jackhmmer_n_it = int(config["thresholds"].get("jackhmmer_n_it"))            # number of iterations to perform on remote-homologue search by jackHMMR
+lig_clust_dist = float(config["thresholds"].get("lig_clust_dist"))          # distance threshold where hierarchical tree is cut for ligand binding site definition.
+MES_t = float(config["thresholds"].get("MES_t"))                            # Missense Enrichment Score threshold to consider a position missense-depleted, or enriched.
 max_retry = int(config["thresholds"].get("max_retry"))                      # number of maximum attempts to make to retrieve a certain piece of data from PDBe API.
+resolution = float(config["thresholds"].get("resolution"))                  # resolution threshold to consider a structure high-resolution.
 sleep_time = float(config["thresholds"].get("sleep_time"))                  # time to sleep between queries to the PDBe API.
-#lig_min_freq = float(config["thresholds"].get("lig_min_freq"))              # minimum ligand frequency in human structures to be considered as ligand of interest (LOI) (inclusive).
-#lig_max_freq = float(config["thresholds"].get("lig_max_freq"))              # maximum ligand frequency in human structures to be considered as ligand of interest (LOI) (inclusive).
-#lig_min_atoms = int(config["thresholds"].get("lig_min_atoms"))              # minimum ligand number of atoms to be considered as ligand of interest (LOI) (inclusive).
-#lig_max_atoms = int(config["thresholds"].get("lig_max_atoms"))              # maximum ligand number of atoms to be considered as ligand of interest (LOI) (inclusive).
-#lig_types = config["thresholds"].get("lig_types").split(",")                # molecule types of ligands to be considered ligand of interest (LOI).
-biolip_data = config["dbs"].get("biolip_data")                       # location of dictionary containing information about ligands in Biolip.
 
 ### LISTS
 
@@ -299,6 +295,8 @@ def transform_all_files(pdb_files, matrices, chains, raw_dir, clean_dir, trans_d
     the coordinates according to a transformation matrix
     """
     for i, pdb_in in enumerate(pdb_files):
+        pdb_root, _ = os.path.splitext(pdb_in)
+        #pdb_out = os.path.join(raw_dir, pdb_root + ".pdb")
         pdb_out = os.path.join(raw_dir, os.path.basename(pdb_in)[3:].replace(".ent.gz", ".pdb"))
         pdb_id = os.path.basename(pdb_in)[3:7]
         if os.path.isfile(pdb_out):
@@ -459,12 +457,17 @@ def get_bound_mols(pdb_id, bound_mols_dir):
     and returns a formatted dataframe of the bound molecules
     of a given pdb structure.
     """
-    try:
-        bound_mols_df = pd.read_json("https://www.ebi.ac.uk/pdbe/graph-api/pdb/bound_molecules/{}".format(pdb_id), convert_axes = False, dtype = False)
-    except:
-        log.error("Bound molecules data were not recovered for {}".format(pdb_id))
-        return pd.DataFrame()
-    idx = bound_mols_df.index.tolist()
+    bound_mols_out = os.path.join(bound_mols_dir, "{}_bound_mols.json".format(pdb_id))
+    if os.path.isfile(bound_mols_out):
+        bound_mols_df = pd.read_json(bound_mols_out, convert_axes = False, dtype = False)
+        bound_mols_df.index = bound_mols_df.index.astype(int) # not sure I need this
+    else:
+        try:
+            bound_mols_df = pd.read_json("https://www.ebi.ac.uk/pdbe/graph-api/pdb/bound_molecules/{}".format(pdb_id), convert_axes = False, dtype = False)
+        except:
+            log.error("Bound molecules data were not recovered for {}".format(pdb_id))
+            return pd.DataFrame()
+        idx = bound_mols_df.index.tolist()
     df_rows = []
     for i in idx:
         bm_id = bound_mols_df.loc[i, pdb_id]["bm_id"]
@@ -476,7 +479,7 @@ def get_bound_mols(pdb_id, bound_mols_dir):
     df_mols.set_index("bmid", inplace = True)
     return df_mols
 
-def get_bound_mol_inters(pdb_id, bm_id, lig_lab_dict, bound_mol_inters_dir):
+def get_bound_mol_inters(pdb_id, bm_id, bound_mol_inters_dir):
     """
     This function returns a table containing the protein-ligand interactions
     for a given PDB ID and a biomolecule ID.
@@ -486,7 +489,11 @@ def get_bound_mol_inters(pdb_id, bm_id, lig_lab_dict, bound_mol_inters_dir):
         bound_inters_df = pd.read_json(bound_mol_inters_out, convert_axes = False, dtype = False)
         bound_inters_df.index = bound_inters_df.index.astype(int)
     else:
-        bound_inters_df = pd.read_json("https://www.ebi.ac.uk/pdbe/graph-api/pdb/bound_molecule_interactions/{}/{}".format(pdb_id, bm_id), convert_axes = False, dtype = False) # I THINK WE SHOULD SAVE THESE
+        try:
+            bound_inters_df = pd.read_json("https://www.ebi.ac.uk/pdbe/graph-api/pdb/bound_molecule_interactions/{}/{}".format(pdb_id, bm_id), convert_axes = False, dtype = False) # I THINK WE SHOULD SAVE THESE
+        except:
+            log.critical("Bound molecule interactions data were not recovered for {}_{}".format(pdb_id, bm_id))
+            return pd.DataFrame()
         bound_inters_df.to_json(bound_mol_inters_out)
     bound_inters_dff = pd.DataFrame(bound_inters_df.loc[0, pdb_id]["interactions"])
     begin_rws, end_rws, inter_rws = [[], [], []]
@@ -1414,28 +1421,6 @@ if __name__ == '__main__': ### command to run form command line: python3.6 frags
     for arg, value in sorted(vars(args).items()):
         log.info("Argument %s: %r", arg, value)
 
-    ### OBTAINING RELEVANT LIGS ACCORDING TO CONFIG FILE ###
-
-    #ALL_LIG_DATA = pd.read_csv(ALL_LIG_DATA_path, index_col = 0) # had to change to csv because of pickle issue
-
-    #if lig_max_freq == -1.0:
-    #    lig_max_freq = ALL_LIG_DATA.freq.max()
-    #if lig_min_freq == -1.0:
-    #    lig_min_freq = ALL_LIG_DATA.freq.min()
-    #if lig_max_atoms == -1:
-    #    lig_max_atoms = ALL_LIG_DATA.n_atoms.max()
-    #if lig_min_atoms == -1:
-    #    lig_min_atoms = ALL_LIG_DATA.n_atoms.min()
-    #if lig_types == "":
-    #    lig_types = sorted(ALL_LIG_DATA.type.unique().tolist())
-
-    #relevant_ligs = ALL_LIG_DATA.query('(@lig_min_atoms <= n_atoms <= @lig_max_atoms) & (@lig_min_freq <= freq <= @lig_max_freq) & (type in @lig_types)').index.tolist()
-
-    #log.info("LOI frequencies = [{}, {}]".format(str(lig_min_freq), str(lig_max_freq)))
-    #log.info("LOI number of atoms = [{}, {}]".format(str(lig_min_atoms), str(lig_max_atoms)))
-    #log.info("LOI molecule types = {}".format(lig_types))
-    #log.info("There is a total of {} relevant ligands".format(str(len(relevant_ligs))))
-
     ### RETRIEVES ALL SUPERPOSITION MATRICES FOR PDB IDS IN acc, EXCEPT IF THERE ARE NOT ANY SOLVED STRUCTURES
 
     supp_mat_out = os.path.join(supp_mats_dir, "{}_supp_mat.json".format(acc)) # had to change to json because of pickle issue
@@ -1463,21 +1448,6 @@ if __name__ == '__main__': ### command to run form command line: python3.6 frags
         log.warning("No ligand-binding structures for {}. Exiting programme".format(acc))
         print("{}\t{}".format(acc, str(16)), flush = True)
         sys.exit(0)
-
-
-    #lig_pdbs_out = os.path.join(ligand_pdbs_dir, "{}_lig_pdbs.pkl".format(acc)) # generated here, so it is fine
-    #if os.path.isfile(lig_pdbs_out):
-    #    all_ligs_pdbs = load_pickle(lig_pdbs_out)
-    #else:
-    #    try:
-    #        all_ligs_pdbs = get_lig_pdbs(acc) # ALL PDBs THAT CONTAIN LIGANDS BOUND TO THEM
-    #        dump_pickle(all_ligs_pdbs, lig_pdbs_out)
-    #        n_all_ligs_pdbs = len(all_ligs_pdbs)
-    #        log.info("There are {} ligand-binding structures for {}".format(str(n_all_ligs_pdbs), acc))
-    #    except HTTPError as e:
-    #        log.warning("{} does not present any bound ligands. Exiting programme".format(acc))
-    #        print("{}\t{}".format(acc, str(16)), flush = True)
-    #        sys.exit()
 
     ### CREATES WORKING DIRECTORY FOR acc
 
@@ -1543,7 +1513,7 @@ if __name__ == '__main__': ### command to run form command line: python3.6 frags
 
             ### CHECKS IF FINAL RESULTS TABLE EXISTS, AND IF SO, SKIPS TO NEXT SEGMENT
 
-            final_table_out = os.path.join(results_dir, "{}_{}_results_table.pkl".format(acc, str(segment)))
+            final_table_out = os.path.join(results_dir, "{}_{}_{}_{}_results_table.pkl".format(acc, str(segment), experimental_methods, str(resolution)))
             if os.path.isfile(final_table_out) and not override:
                 print("{}\t{}".format(seg_id, str(0)), flush = True)
                 log.info("Results available for Segment {} of {}".format(str(segment), acc))
@@ -1601,31 +1571,47 @@ if __name__ == '__main__': ### command to run form command line: python3.6 frags
                 print("{}\t{}".format(seg_id, str(2)), flush = True)
                 continue
 
-            ### NEW FROM 07/2023 FILTERS OUT PDB IDS THAT DO NOT MEET CRITERION: X-RAY AND RESOLUTION < 2.5
+            ### NEW FROM 07/2023 FILTERS OUT PDB IDS THAT DO NOT MEET CRITERION: @experimental_methods AND @resolution
 
-            # if "experimental_method" not in exp_data_df or "resolution" not in exp_data_df:
-            #     log.warning("Medhod or resolution missing. No quality structures returned.")
-            #     print("{}\t{}".format(seg_id, str(3)), flush = True)
-            #     continue
+            log.info("{} experimental methods are being used".format(experimental_methods_list))
+            log.info("Structures with resolution < {} are being used".format(str(resolution)))
 
-            # good_pdbs = exp_data_df.query('experimental_method == "X-ray diffraction" & resolution < 2.5').pdb_id.tolist()
+            if experimental_methods == "ALL" and math.isinf(resolution):
+                pass
+            else:
+                if "experimental_method" not in exp_data_df or "resolution" not in exp_data_df:
+                    log.warning("Medhod or resolution missing. No quality structures returned.")
+                    print("{}\t{}".format(seg_id, str(3)), flush = True)
+                    continue
 
-            # if good_pdbs == []:
-            #     log.warning("None of the structures meet quality threshold for Segment {} of {}".format(str(segment), acc))
-            #     print("{}\t{}".format(seg_id, str(4)), flush = True)
-            #     continue
+                if experimental_methods == "ALL":
+                    pass
+                else:
+                    exp_data_df = exp_data_df.query('experimental_method in @experimental_methods_list')
 
-            # files2remove, ids2remove = [[], []] # now because of exp method and resolution
-            # for i, pdb_id in enumerate(pdb_ids):
-            #     if pdb_id not in good_pdbs:
-            #         log.warning("{} did not meet quality standards".format(pdb_id))
-            #         files2remove.append(pdb_files[i]) # saving pdbs not meeting QC so they are removed later. removing whilst for loop is not a good idea
-            #         ids2remove.append(pdb_id)
+                if math.isinf(resolution):
+                    pass
+                else:
+                    exp_data_df = exp_data_df.query('resolution < @resolution')
 
-            # pdb_ids = [pdb_id for pdb_id in pdb_ids if pdb_id not in ids2remove] # now only X-ray res<2.5 are kept
-            # pdb_files = [pdb_file for pdb_file in pdb_files if pdb_file not in files2remove] # now only X-ray res<2.5 are kept
+                good_pdbs = exp_data_df.pdb_id.tolist()
 
-            # log.info("Segment {} of {} presents {} high quality chains".format(str(segment), acc, str(len(pdb_files))))
+                if good_pdbs == []:
+                    log.warning("None of the structures meet quality threshold for Segment {} of {}".format(str(segment), acc))
+                    print("{}\t{}".format(seg_id, str(4)), flush = True)
+                    continue
+
+                files2remove, ids2remove = [[], []] # now because of exp method and resolution
+                for i, pdb_id in enumerate(pdb_ids):
+                    if pdb_id not in good_pdbs:
+                        log.warning("{} did not meet quality standards".format(pdb_id))
+                        files2remove.append(pdb_files[i]) # saving pdbs not meeting QC so they are removed later. removing whilst for loop is not a good idea
+                        ids2remove.append(pdb_id)
+
+                pdb_ids = [pdb_id for pdb_id in pdb_ids if pdb_id not in ids2remove] # now only desired experimental method and resolution are kept
+                pdb_files = [pdb_file for pdb_file in pdb_files if pdb_file not in files2remove] # now only desired experimental method and resolution are kept
+
+            log.info("Segment {} of {} presents {} high quality chains".format(str(segment), acc, str(len(pdb_files))))
             
             ### CHECKING AMOUNT OF PDB FILES AND PDB IDS ARE THE SAME
 
@@ -1773,7 +1759,7 @@ if __name__ == '__main__': ### command to run form command line: python3.6 frags
             lig_labs = get_labs(lig_fps_filt2_sifted)
             n_ligs = len(lig_labs)
             log.info("There are {} relevant ligands for Segment {} of {}".format(str(n_ligs), str(segment), acc))
-            irel_mat_out = os.path.join(results_dir, "{}_{}_irel_matrix.pkl".format(acc, str(segment)))
+            irel_mat_out = os.path.join(results_dir, "{}_{}_{}_{}_irel_matrix.pkl".format(acc, str(segment), experimental_methods, str(resolution)))
 
             if override or not os.path.isfile(irel_mat_out):
                 irel_matrix = get_intersect_rel_matrix(lig_sifted_inters) # this is a measure of similarity, probs want to save this
@@ -1819,13 +1805,13 @@ if __name__ == '__main__': ### command to run form command line: python3.6 frags
 
                 chimera_atom_specs = get_chimera_data(cluster_id_dict)
 
-                attr_out = os.path.join(results_dir, "{}_{}_pdbe_kb_scipy_{}_{}.attr".format(acc, str(segment), lig_clust_method, lig_clust_dist))
+                attr_out = os.path.join(results_dir, "{}_{}_{}_{}_pdbe_kb_scipy_{}_{}.attr".format(acc, str(segment), experimental_methods, str(resolution), lig_clust_method, lig_clust_dist))
                 
                 if override or not os.path.isfile(attr_out):
                     
                     write_chimera_attr(attr_out, chimera_atom_specs, cluster_ids)
 
-                chimera_script_out = os.path.join(results_dir, "{}_{}_pdbe_kb_scipy_{}_{}.com".format(acc, str(segment), lig_clust_method, lig_clust_dist))
+                chimera_script_out = os.path.join(results_dir, "{}_{}_{}_{}_pdbe_kb_scipy_{}_{}.com".format(acc, str(segment), experimental_methods, str(resolution), lig_clust_method, lig_clust_dist))
 
                 ### IMPLEMENT CHIMERA OPENING SCRIPT: opens only those PDBs that are actually binding ligands. could be less than 50% of total chains
 
@@ -1837,9 +1823,9 @@ if __name__ == '__main__': ### command to run form command line: python3.6 frags
 
             ### BINDING SITE MEMBERSHIP PROCESSING
 
-            membership_out = os.path.join(results_dir, "{}_{}_bss_membership.pkl".format(acc, str(segment)))
-            cluster_ress_out = os.path.join(results_dir, "{}_{}_bss_ress.pkl".format(acc, str(segment)))
-            bs_mm_dict_out = os.path.join(results_dir, "{}_{}_ress_bs_membership.pkl".format(acc, str(segment)))
+            membership_out = os.path.join(results_dir, "{}_{}_{}_{}_bss_membership.pkl".format(acc, str(segment), experimental_methods, str(resolution)))
+            cluster_ress_out = os.path.join(results_dir, "{}_{}_{}_{}_bss_ress.pkl".format(acc, str(segment), experimental_methods, str(resolution)))
+            bs_mm_dict_out = os.path.join(results_dir, "{}_{}_{}_{}_ress_bs_membership.pkl".format(acc, str(segment), experimental_methods, str(resolution)))
                 
             if override or not os.path.isfile(membership_out):
                 membership = get_cluster_membership(cluster_id_dict) # which LBS ligands belong to
@@ -1867,7 +1853,7 @@ if __name__ == '__main__': ### command to run form command line: python3.6 frags
 
             ### RUNNING DSSP FOR ALL STRUCTURES
 
-            master_dssp_out = os.path.join(results_dir, "{}_{}_strs_dssp.pkl".format(acc, str(segment)))
+            master_dssp_out = os.path.join(results_dir, "{}_{}_{}_{}_strs_dssp.pkl".format(acc, str(segment), experimental_methods, str(resolution)))
             if override or not os.path.isfile(master_dssp_out):
                 dssp_data = get_dssp_data(trans_dir, dssp_dir, sifts_mapping, master_dssp_out)
                 log.info("Obtained DSSP data")
@@ -1882,10 +1868,10 @@ if __name__ == '__main__': ### command to run form command line: python3.6 frags
                 dsspd_filt.SS = dsspd_filt.SS.replace("", "C")
                 dsspd_filt.UniProt_ResNum = dsspd_filt.UniProt_ResNum.astype(int)
 
-                AA_dict_out = os.path.join(results_dir, "{}_{}_ress_AA.pkl".format(acc, str(segment)))
-                RSA_dict_out = os.path.join(results_dir, "{}_{}_ress_RSA.pkl".format(acc, str(segment)))
-                SS_dict_out = os.path.join(results_dir, "{}_{}_ress_SS.pkl".format(acc, str(segment)))
-                rsa_profs_out = os.path.join(results_dir, "{}_{}_bss_RSA_profiles.pkl".format(acc, str(segment)))
+                AA_dict_out = os.path.join(results_dir, "{}_{}_{}_{}_ress_AA.pkl".format(acc, str(segment), experimental_methods, str(resolution)))
+                RSA_dict_out = os.path.join(results_dir, "{}_{}_{}_{}_ress_RSA.pkl".format(acc, str(segment), experimental_methods, str(resolution)))
+                SS_dict_out = os.path.join(results_dir, "{}_{}_{}_{}_ress_SS.pkl".format(acc, str(segment), experimental_methods, str(resolution)))
+                rsa_profs_out = os.path.join(results_dir, "{}_{}_{}_{}_bss_RSA_profiles.pkl".format(acc, str(segment), experimental_methods, str(resolution)))
 
                 if override or not os.path.isfile(AA_dict_out):
                     ress_AA_dict = {
