@@ -11,7 +11,7 @@ ensembl_sqlite = /cluster/gjb_lab/2394007/pandda_analysis/phase5/prots/.varalign
 gnomad_vcf = /homes/smacgowan/NOBACK/resources/gnomad/gnomad.exomes.r2.0.1.sites.vcf.gz
 pdb_db_path = /cluster/gjb_lab/db/NOBACK/mirrors/pdb/data/structures/divided/pdb/
 sifts_db_path = /cluster/gjb_lab/db/NOBACK/local_databases/sifts_current/split_xml/
-sifts_db_path2 = /cluster/home/2394007/JSU_LIGYSIS/./.prointvar/sifts
+sifts_db_path2 = /cluster/gjb_lab/2394007/data/all_species/sifts
 swissprot = /cluster/gjb_lab/2394007/data/all_species/swissprot_15_09_2023.fasta
 
 [formats]
@@ -22,14 +22,6 @@ struc_fmt = pdb
 experimental_methods = ALL
 lig_clust_method = average
 lig_clust_metric = i_rel
-
-[setup]
-bound_mol_inters_dir = /cluster/gjb_lab/2394007/pandda_analysis/phase5/human_prots_data/bound_mol_inters
-bound_mols_dir = /cluster/gjb_lab/2394007/pandda_analysis/phase5/human_prots_data/bound_mols
-exp_data_dir = /cluster/gjb_lab/2394007/pandda_analysis/phase5/human_prots_data/exp
-ligand_pdbs_dir = /cluster/gjb_lab/2394007/pandda_analysis/phase5/human_prots_data/lig_pdbs
-segment_data_dir = /cluster/gjb_lab/2394007/pandda_analysis/phase5/human_prots_data/segment_data
-supp_mats_dir = /cluster/gjb_lab/2394007/pandda_analysis/phase5/human_prots_data/supp_mats
 
 [thresholds]
 cons_t_h = 75

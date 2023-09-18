@@ -30,7 +30,7 @@ import varalign.alignments
 from urllib.error import HTTPError
 from urllib.error import URLError
 
-from config import BASE_DIR, INPUT_FOLDER, OUTPUT_FOLDER
+from config import BASE_DIR, INPUT_FOLDER, OUTPUT_FOLDER, DATA_FOLDER, MOLS_FOLDER, INTERS_FOLDER, EXP_FOLDER, MATS_FOLDER, SEGMENT_FOLDER
 
 ### SETTING UP LOGGER
 
@@ -60,12 +60,6 @@ experimental_methods = config["other"].get("experimental_methods")          # ex
 experimental_methods_list = experimental_methods.split(",")                 # splits string into list of strings.
 lig_clust_method = config["other"].get("lig_clust_method")                  # linkage method used for the hierarchical clustering.
 lig_clust_metric = config["other"].get("lig_clust_metric")                  # similarity metric used defined for ligand binding site definition (later transformed into distance metric).
-bound_mol_inters_dir = config["setup"].get("bound_mol_inters_dir")          # location of directory where bound molecule interactions data is saved for structures (origin PDBe REST API).
-bound_mols_dir = config["setup"].get("bound_mols_dir")                      # location of directory where bound molcules data is saved for structures (origin PDBe REST API). 
-exp_data_dir = config["setup"].get("exp_data_dir")                          # location of directory where experimental data is saved for structures (origin PDBe REST API).
-ligand_pdbs_dir = config["setup"].get("ligand_pdbs_dir")                    # location of directory where ligand PDBs data is saved for each accession (origin PDBe REST API).
-segment_data_dir = config["setup"].get("segment_data_dir")                  # location of directory where segment data is saved for each accession (origin PDBe REST API).
-supp_mats_dir = config["setup"].get("supp_mats_dir")                        # location of directory where superposition data is saved for structures (origin PDBe REST API).
 cons_t_h = float(config["thresholds"].get("cons_t_h"))                      # conservation score upper threshold to consider position highly divergent. Currently only working with Shenkin divergence score.
 cons_t_l = float(config["thresholds"].get("cons_t_l"))                      # conservation score lower threshold to consider position highly conserved. Currenyly only working with Shenkin divergence score.
 cons_ts = [cons_t_l, cons_t_h]                                              # groups both thresholds into a list.
@@ -295,9 +289,9 @@ def transform_all_files(pdb_files, matrices, chains, raw_dir, clean_dir, trans_d
     the coordinates according to a transformation matrix
     """
     for i, pdb_in in enumerate(pdb_files):
-        pdb_root, _ = os.path.splitext(pdb_in)
-        #pdb_out = os.path.join(raw_dir, pdb_root + ".pdb")
-        pdb_out = os.path.join(raw_dir, os.path.basename(pdb_in)[3:].replace(".ent.gz", ".pdb"))
+        pdb_root, _ = os.path.splitext(os.path.basename(pdb_in))
+        pdb_out = os.path.join(raw_dir, pdb_root[3:] + ".pdb")
+        #pdb_out = os.path.join(raw_dir, os.path.basename(pdb_in)[3:].replace(".ent.gz", ".pdb"))
         pdb_id = os.path.basename(pdb_in)[3:7]
         if os.path.isfile(pdb_out):
             pass
@@ -305,17 +299,20 @@ def transform_all_files(pdb_files, matrices, chains, raw_dir, clean_dir, trans_d
             with gzip.open(pdb_in, "rb") as f_in:
                 with open(pdb_out, "wb") as f_out:
                     shutil.copyfileobj(f_in, f_out)
-        file_clean_from = os.path.join(raw_dir, os.path.basename(pdb_out).replace(".pdb", ".clean.pdb"))
-        file_clean_to = os.path.join(clean_dir, os.path.basename(pdb_out).replace(".pdb", ".clean.pdb"))
+        file_clean_from = os.path.join(raw_dir, pdb_root[3:] + ".clean.pdb")
+        file_clean_to = os.path.join(clean_dir, pdb_root[3:] + ".clean.pdb")
+        #file_clean_from = os.path.join(raw_dir, os.path.basename(pdb_out).replace(".pdb", ".clean.pdb"))
+        #file_clean_to = os.path.join(clean_dir, os.path.basename(pdb_out).replace(".pdb", ".clean.pdb"))
         if os.path.isfile(file_clean_to):
             pass
         else:
             run_clean_pdb(pdb_out)
-            os.remove(os.path.join(raw_dir, os.path.basename(pdb_out) + ".breaks"))
-            os.remove(os.path.join(raw_dir, os.path.basename(pdb_out) + ".break_residues"))
+            os.remove(os.path.join(raw_dir, pdb_root[3:] + ".pdb" + ".breaks"))
+            os.remove(os.path.join(raw_dir, pdb_root[3:] + ".pdb" + ".break_residues"))
             shutil.move(file_clean_from, file_clean_to)
             log.info("{} cleaned".format(pdb_id))
-        transformed_out = os.path.join(trans_dir, os.path.basename(pdb_out).replace(".pdb", "_{}_trans.pdb".format(chains[i])))
+        transformed_out = os.path.join(trans_dir, pdb_root[3:] + "_{}_trans.pdb".format(chains[i]))
+        #transformed_out = os.path.join(trans_dir, os.path.basename(pdb_out).replace(".pdb", "_{}_trans.pdb".format(chains[i])))
         if os.path.isfile(transformed_out):
             pass
         else:
@@ -888,8 +885,11 @@ def run_dssp(pdb_path, trans_dir, dssp_dir):
     """
     
     struc_in = os.path.join(trans_dir, pdb_path)
-    dssp_out = os.path.join(dssp_dir, pdb_path.replace("pdb", "dssp"))
-    dssp_pickle = os.path.join(dssp_dir, pdb_path.replace("pdb", "pkl")) # output pickle filepath
+    pdb_root, _ = os.path.splitext(pdb_path)
+    dssp_out = os.path.join(dssp_dir, pdb_root + ".dssp")
+    dssp_pickle = os.path.join(dssp_dir, pdb_root + ".pkl") # output pickle filepath
+    #dssp_out = os.path.join(dssp_dir, pdb_path.replace("pdb", "dssp"))
+    #dssp_pickle = os.path.join(dssp_dir, pdb_path.replace("pdb", "pkl")) # output pickle filepath
     if os.path.isfile(dssp_out):
         pass
     else:
@@ -938,7 +938,9 @@ def get_dssp_data(trans_dir, dssp_dir, sifts_mapping_dict, out):
                 else:
                     log.error("Unknown DSSP Error for {}".format(pdb_in)) 
                 continue
-            dssp_df = pd.read_pickle(os.path.join(dssp_dir, trans_file.replace("pdb", "pkl")))
+            trans_root, _ = os.path.splitext(trans_file)
+            dssp_df = pd.read_pickle(os.path.join(dssp_dir, trans_root + ".pkl"))
+            #dssp_df = pd.read_pickle(os.path.join(dssp_dir, trans_file.replace("pdb", "pkl")))
             dssp_df.PDB_ResNum = dssp_df.PDB_ResNum.astype(str)
             try:
                 dssp_df["UniProt_ResNum"] = dssp_df["PDB_ResNum"].map(sifts_mapping_dict[pdb_id][chain_id])
@@ -1405,25 +1407,25 @@ if __name__ == '__main__': ### command to run form command line: python3.6 frags
     parser.add_argument("up_acc", type = str, help = "UniProt accession number of the protein of interest.")
     parser.add_argument("--override", help = "Override any previously generated files.", action = "store_true")
     parser.add_argument("--override_variants", help = "Override any previously generated files (ONLY VARIANTS SECTION).", action = "store_true")
-    parser.add_argument("--transform", help = "Cleans, transforms, and simplifies structures.", action = "store_true")
-    parser.add_argument("--experimental", help = "Downloads, and processes experimental data for all structures.", action = "store_true")
-    parser.add_argument("--variants", help = "Retrieves Human variants form MSA and generates tables.", action = "store_true")
+    #parser.add_argument("--no_transform", help = "Cleans, transforms, and simplifies structures.", action = "store_true")
+    #parser.add_argument("--no_experimental", help = "Downloads, and processes experimental data for all structures.", action = "store_true")
+    #parser.add_argument("--no_variants", help = "Retrieves Human variants form MSA and generates tables.", action = "store_true")
 
     args = parser.parse_args()
 
     acc = args.up_acc
     override = args.override
     override_variants = args.override_variants
-    run_transform = args.transform
-    run_experimental = args.experimental
-    run_variants = args.variants
+    #run_transform = args.transform
+    #run_experimental = args.experimental
+    #run_variants = args.variants
 
     for arg, value in sorted(vars(args).items()):
         log.info("Argument %s: %r", arg, value)
 
     ### RETRIEVES ALL SUPERPOSITION MATRICES FOR PDB IDS IN acc, EXCEPT IF THERE ARE NOT ANY SOLVED STRUCTURES
 
-    supp_mat_out = os.path.join(supp_mats_dir, "{}_supp_mat.json".format(acc)) # had to change to json because of pickle issue
+    supp_mat_out = os.path.join(MATS_FOLDER, "{}_supp_mat.json".format(acc)) # had to change to json because of pickle issue
     if os.path.isfile(supp_mat_out):
         matrices_df = pd.read_json(supp_mat_out, convert_axes = False, dtype = False)
         log.info("Matrix table was read for {} and contains {} chains".format(acc, str(len(matrices_df))))
@@ -1458,7 +1460,7 @@ if __name__ == '__main__': ### command to run form command line: python3.6 frags
 
     ### READING SUPERPOSITION DATA FROM GRAPH-API. CONTAINS INFO ABOUT SEGMENTS.
 
-    segment_data_out = os.path.join(segment_data_dir, "{}_segments.json".format(acc)) # had to change to json because of pickle issue
+    segment_data_out = os.path.join(SEGMENT_FOLDER, "{}_segments.json".format(acc)) # had to change to json because of pickle issue
     if os.path.isfile(segment_data_out):
         supp_data = pd.read_json(segment_data_out, convert_axes = False, dtype = False)
         log.info("Segment data is being read from json file")
@@ -1536,21 +1538,21 @@ if __name__ == '__main__': ### command to run form command line: python3.6 frags
 
             pdb_files = [os.path.join(pdb_db_path, pdb_id[1:3], "pdb{}.ent.gz".format(pdb_id)) for pdb_id in pdb_ids]
 
-            if run_experimental:
+            #if run_experimental:
 
-                ### GETTING EXPERIMENTAL DATA FROM ALL STRUCTURES
+            ### GETTING EXPERIMENTAL DATA FROM ALL STRUCTURES
 
-                experimental_out = os.path.join(results_dir, "{}_{}_strs_exp.pkl".format(acc, str(segment)))
+            experimental_out = os.path.join(results_dir, "{}_{}_strs_exp.pkl".format(acc, str(segment)))
 
-                if override or not os.path.isfile(experimental_out):
-                    exp_data_df = get_experimental_data(pdb_ids, exp_data_dir, experimental_out)
-                    log.info("Obtained experimental data")
-                else:
-                    
-                    exp_data_df = pd.read_pickle(experimental_out)
-                    log.debug("Loaded experimental data")
-                    pass
-                log.info("Experimental data processed for Segment {} of {}".format(str(segment), acc))
+            if override or not os.path.isfile(experimental_out):
+                exp_data_df = get_experimental_data(pdb_ids, EXP_FOLDER, experimental_out)
+                log.info("Obtained experimental data")
+            else:
+                
+                exp_data_df = pd.read_pickle(experimental_out)
+                log.debug("Loaded experimental data")
+                pass
+            log.info("Experimental data processed for Segment {} of {}".format(str(segment), acc))
 
             ### FILTERS OUT PDB IDS, AND FILES THAT ARE NOT FOUND IN LOCAL DATABASE
 
@@ -1652,7 +1654,7 @@ if __name__ == '__main__': ### command to run form command line: python3.6 frags
                     log.warning("Segment {} of {} does not present any ligand-binding structures".format(str(segment), acc))
                     continue
                 else:
-                    lig_fps = get_fingerprints_dict(acc, fps_dir, fps_out, all_ligs_pdbs_segment, segment_chains[segment], bound_mols_dir, bound_mol_inters_dir) # GETS ALL LIGAND FINGERPRINTS FROM LIG-BOUND CONTAINING PDBS
+                    lig_fps = get_fingerprints_dict(acc, fps_dir, fps_out, all_ligs_pdbs_segment, segment_chains[segment], MOLS_FOLDER, INTERS_FOLDER) # GETS ALL LIGAND FINGERPRINTS FROM LIG-BOUND CONTAINING PDBS
             else:
                 with open(fps_out, "rb") as f:
                     lig_fps = pickle.load(f) # stands for ligand fingerprints
@@ -1787,39 +1789,39 @@ if __name__ == '__main__': ### command to run form command line: python3.6 frags
 
             ### TODO ###
 
-            if run_transform:
+            #if run_transform:
 
-                ### TRANSFORMATION OF PROTEIN-LIGAND INTERACTIONS CONTAINING PDBs
+            ### TRANSFORMATION OF PROTEIN-LIGAND INTERACTIONS CONTAINING PDBs
 
-                transform_all_files(pdb_files, matrices, chains, raw_dir, clean_dir, trans_dir) # this is wrong. pdb_files and chains do not match
+            transform_all_files(pdb_files, matrices, chains, raw_dir, clean_dir, trans_dir) # this is wrong. pdb_files and chains do not match
 
-                log.info("Structures cleaned and transformed for Segment {} of {}".format(str(segment), acc))
+            log.info("Structures cleaned and transformed for Segment {} of {}".format(str(segment), acc))
 
-                ### SIMPLIFYING PDB FILES (1 MODEL PROTEIN COORDINATES + HETATM FOR THE REST OF THEM)
+            ### SIMPLIFYING PDB FILES (1 MODEL PROTEIN COORDINATES + HETATM FOR THE REST OF THEM)
 
-                get_simple_pdbs(trans_dir, simple_dir) # right now, does not print ligands if they are actual amino acids. Could fix passing ligand data for each structure. fingerprints dict
+            get_simple_pdbs(trans_dir, simple_dir) # right now, does not print ligands if they are actual amino acids. Could fix passing ligand data for each structure. fingerprints dict
 
-                log.info("Structures simplified for Segment {} of {}".format(str(segment), acc))
+            log.info("Structures simplified for Segment {} of {}".format(str(segment), acc))
 
-                ### CHIMERA COLOURING SCRIPT AND ATTRIBUTE WRITING
+            ### CHIMERA COLOURING SCRIPT AND ATTRIBUTE WRITING
 
-                chimera_atom_specs = get_chimera_data(cluster_id_dict)
+            chimera_atom_specs = get_chimera_data(cluster_id_dict)
 
-                attr_out = os.path.join(results_dir, "{}_{}_{}_{}_pdbe_kb_scipy_{}_{}.attr".format(acc, str(segment), experimental_methods, str(resolution), lig_clust_method, lig_clust_dist))
+            attr_out = os.path.join(results_dir, "{}_{}_{}_{}_pdbe_kb_scipy_{}_{}.attr".format(acc, str(segment), experimental_methods, str(resolution), lig_clust_method, lig_clust_dist))
+            
+            if override or not os.path.isfile(attr_out):
                 
-                if override or not os.path.isfile(attr_out):
-                    
-                    write_chimera_attr(attr_out, chimera_atom_specs, cluster_ids)
+                write_chimera_attr(attr_out, chimera_atom_specs, cluster_ids)
 
-                chimera_script_out = os.path.join(results_dir, "{}_{}_{}_{}_pdbe_kb_scipy_{}_{}.com".format(acc, str(segment), experimental_methods, str(resolution), lig_clust_method, lig_clust_dist))
+            chimera_script_out = os.path.join(results_dir, "{}_{}_{}_{}_pdbe_kb_scipy_{}_{}.com".format(acc, str(segment), experimental_methods, str(resolution), lig_clust_method, lig_clust_dist))
 
-                ### IMPLEMENT CHIMERA OPENING SCRIPT: opens only those PDBs that are actually binding ligands. could be less than 50% of total chains
+            ### IMPLEMENT CHIMERA OPENING SCRIPT: opens only those PDBs that are actually binding ligands. could be less than 50% of total chains
 
-                if override or not os.path.isfile(chimera_script_out):
+            if override or not os.path.isfile(chimera_script_out):
 
-                    write_chimera_command(chimera_script_out, chimera_cmd_args, cluster_ids, bs_colors)
+                write_chimera_command(chimera_script_out, chimera_cmd_args, cluster_ids, bs_colors)
 
-                log.info("Chimera attributes and script generated for Segment {} of {}".format(str(segment), acc))
+            log.info("Chimera attributes and script generated for Segment {} of {}".format(str(segment), acc))
 
             ### BINDING SITE MEMBERSHIP PROCESSING
 
@@ -1925,208 +1927,208 @@ if __name__ == '__main__': ### command to run form command line: python3.6 frags
 
             ### GENERATE ALIGNMENT                                                 
 
-            if run_variants:
+            #if run_variants:
 
-                seq_out = os.path.join(variants_dir, "{}_{}.fasta".format(acc, str(segment)))
+            seq_out = os.path.join(variants_dir, "{}_{}.fasta".format(acc, str(segment)))
 
-                if override_variants or not os.path.isfile(seq_out):
-                    best = get_best_from_segment_data(segment_data[segment])
-                    best_seq_id = get_best_struct_seq(acc, segment, seq_out, best) # change how we get seq. must be representative of the segment
-                    log.info("Generated sequence file")
+            if override_variants or not os.path.isfile(seq_out):
+                best = get_best_from_segment_data(segment_data[segment])
+                best_seq_id = get_best_struct_seq(acc, segment, seq_out, best) # change how we get seq. must be representative of the segment
+                log.info("Generated sequence file")
+            else:
+                best_seq_id = [rec.id for rec in Bio.SeqIO.parse(seq_out, "fasta")][0]
+                log.debug("Sequence file already existed")
+                pass
+
+            hits_out = os.path.join(variants_dir, "{}_{}.out".format(acc, str(segment)))
+            hits_aln = os.path.join(variants_dir, "{}_{}.sto".format(acc, str(segment)))
+
+            if override_variants or not os.path.isfile(hits_out) or not os.path.isfile(hits_aln):
+                jackhmmer(seq_out, hits_out, hits_aln, n_it = jackhmmer_n_it, seqdb = swissprot)
+                log.info("Generated MSA")
+            else:
+                log.debug("MSA already existed")
+                pass
+            
+            n_seqs = len(AlignIO.read(hits_aln, MSA_fmt))
+
+            if n_seqs == 1: # need RESULTS TABLE even if there is no MSA data
+                print("{}\t{}".format(seg_id, str(11)), flush = True)
+                log.critical("No sequences were found by jackHMMER for Segment {} of {}. Finishing here".format(str(segment), acc))
+                continue
+            else:
+                log.info("{} sequences were found by jackHMMER for Segment {} of {}".format(str(n_seqs), str(segment), acc))
+            hits_aln_rf = os.path.join(variants_dir, "{}_{}_rf.sto".format(acc, str(segment)))
+
+            if override_variants or not os.path.isfile(hits_aln_rf):
+                add_acc2msa(hits_aln, hits_aln_rf, best_seq_id)
+                log.info("Formatted MSA")
+            else:
+                log.debug("MSA already formatted")
+                pass
+
+            log.info("MSA realised for Segment {} of {}".format(str(segment), acc))
+
+            ### CONSERVATION ANALYSIS
+
+            prot_cols = prot_cols = get_target_prot_cols(hits_aln, best_seq_id)
+            shenkin_out = os.path.join(variants_dir, "{}_{}_rf_shenkin.pkl".format(acc, str(segment)))
+            if override_variants or not os.path.isfile(shenkin_out):
+                shenkin = calculate_shenkin(hits_aln_rf, "stockholm", shenkin_out)
+                log.info("Calculated conservation data")
+            else:
+                shenkin = pd.read_pickle(shenkin_out)
+                log.debug("Loaded conservation data")
+            
+            shenkin_filt_out = os.path.join(variants_dir, "{}_{}_rf_shenkin_filt.pkl".format(acc, str(segment)))
+            if override_variants or not os.path.isfile(shenkin_filt_out):
+                shenkin_filt = format_shenkin(shenkin, prot_cols, shenkin_filt_out)
+                log.info("Filtered conservation data")
+            else:
+                shenkin_filt = pd.read_pickle(shenkin_filt_out)
+                log.debug("Conservation data already filtered")
+
+            log.info("Conservation scores calculated for Segment {} of {}".format(str(segment), acc))
+
+            ### VARIATION, POSSIBLY NEED TO IMPLEMENT CLINVAR AS WELL
+
+            aln_obj = Bio.AlignIO.read(hits_aln_rf, "stockholm") #crashes if target protein is not human!
+            aln_info_path = os.path.join(variants_dir, "{}_{}_rf_info_table.p.gz".format(acc, str(segment)))
+            if override_variants or not os.path.isfile(aln_info_path):
+                aln_info = varalign.alignments.alignment_info_table(aln_obj)
+                aln_info.to_pickle(aln_info_path)
+                log.info("Generated MSA info table")
+            else:
+                aln_info = pd.read_pickle(aln_info_path)
+                log.debug("Loaded MSA info table")
+            
+            log.info("There are {} sequences in MSA for Segment {}".format(len(aln_info), str(segment)))
+
+            indexed_mapping_path = os.path.join(variants_dir, "{}_{}_rf_mappings.p.gz".format(acc, str(segment)))
+            if override_variants or not os.path.isfile(indexed_mapping_path):
+                indexed_mapping_table = varalign.align_variants._mapping_table(aln_info) # now contains all species
+                indexed_mapping_table.to_pickle(indexed_mapping_path) # important for merging later on
+                log.info("Generated MSA mapping table")
+            else:
+                indexed_mapping_table = pd.read_pickle(indexed_mapping_path)
+                log.debug("Loaded MSA mapping table")    
+
+            aln_info_human = aln_info[aln_info.species == "HUMAN"]
+
+            if len(aln_info_human) > 0:
+                log.info("There are {} HUMAN sequences in the MSA for Segment {} of {}".format(len(aln_info_human), str(segment), acc))
+            
+                human_hits_msa = os.path.join(variants_dir, "{}_{}_rf_human.sto".format(acc, str(segment)))
+                
+                if override_variants or not os.path.isfile(human_hits_msa):
+                    get_human_subset_msa(hits_aln_rf, human_hits_msa)
                 else:
-                    best_seq_id = [rec.id for rec in Bio.SeqIO.parse(seq_out, "fasta")][0]
-                    log.debug("Sequence file already existed")
                     pass
 
-                hits_out = os.path.join(variants_dir, "{}_{}_jackhmmer.out".format(acc, str(segment)))
-                hits_aln = os.path.join(variants_dir, "{}_{}_jackhmmer.sto".format(acc, str(segment)))
+                ### copy ensemble SQLite to directory where this is being executed
+                cp_path = cp_sqlite(wd)
+                log.debug("ENSEMBL_CACHE SQLite copied correctly")
 
-                if override_variants or not os.path.isfile(hits_out) or not os.path.isfile(hits_aln):
-                    jackhmmer(seq_out, hits_out, hits_aln, n_it = jackhmmer_n_it, seqdb = swissprot)
-                    log.info("Generated MSA")
+                variant_table_path = os.path.join(variants_dir, "{}_{}_rf_human_variants.p.gz".format(acc, str(segment)))
+                if override_variants or not os.path.isfile(variant_table_path):
+                    #vcf_out_path = os.path.join(main_dir , "results", "{}_alignment_variants.vcf".format(seg_id))
+                    try:
+                        variants_table = varalign.align_variants.align_variants(aln_info_human, path_to_vcf = gnomad_vcf,  include_other_info = False, write_vcf_out = False)     
+                    except ValueError as e:
+                        print("{}\t{}".format(seg_id, str(12)), flush = True)
+                        variants_table = pd.DataFrame()
+                        log.warning("No variants were retrieved for Segment {} of {}".format(str(segment), acc))
+
+                    variants_table.to_pickle(variant_table_path)
+
                 else:
-                    log.debug("MSA already existed")
+                    variants_table = pd.read_pickle(variant_table_path)
+
+                ### remove ensembl SQLite from directory where this is being executed
+                rm_sqlite(cp_path)
+                log.debug("ENSEMBL_CACHE SQLite removed correctly")
+
+                if variants_table.empty: # variant table is empty. E.g., P03915. Only 3 human sequences. They are all mitochondrial (not in gnomAD)
                     pass
-                
-                n_seqs = len(AlignIO.read(hits_aln, MSA_fmt))
 
-                if n_seqs == 1: # need RESULTS TABLE even if there is no MSA data
-                    print("{}\t{}".format(seg_id, str(11)), flush = True)
-                    log.critical("No sequences were found by jackHMMER for Segment {} of {}. Finishing here".format(str(segment), acc))
-                    continue
                 else:
-                    log.info("{} sequences were found by jackHMMER for Segment {} of {}".format(str(n_seqs), str(segment), acc))
-                hits_aln_rf = os.path.join(variants_dir, "{}_{}_jackhmmer_rf.sto".format(acc, str(segment)))
+                    # in order to be able to read the vcf and parse the DB, the ensemble.cache.sqlite file must be in the ./.varalign directory
 
-                if override_variants or not os.path.isfile(hits_aln_rf):
-                    add_acc2msa(hits_aln, hits_aln_rf, best_seq_id)
-                    log.info("Formatted MSA")
-                else:
-                    log.debug("MSA already formatted")
-                    pass
+                    human_miss_vars = format_variant_table(variants_table, prot_cols) # GET ONLY MISSENSE VARIANTS ROWS
+                    human_miss_vars_msa_out = os.path.join(variants_dir, "{}_{}_rf_human_missense_variants_seqs.sto".format(acc, str(segment)))
 
-                log.info("MSA realised for Segment {} of {}".format(str(segment), acc))
-
-                ### CONSERVATION ANALYSIS
-
-                prot_cols = prot_cols = get_target_prot_cols(hits_aln, best_seq_id)
-                shenkin_out = os.path.join(variants_dir, "{}_{}_jackhmmer_rf_shenkin.pkl".format(acc, str(segment)))
-                if override_variants or not os.path.isfile(shenkin_out):
-                    shenkin = calculate_shenkin(hits_aln_rf, "stockholm", shenkin_out)
-                    log.info("Calculated conservation data")
-                else:
-                    shenkin = pd.read_pickle(shenkin_out)
-                    log.debug("Loaded conservation data")
-                
-                shenkin_filt_out = os.path.join(variants_dir, "{}_{}_jackhmmer_rf_shenkin_filt.pkl".format(acc, str(segment)))
-                if override_variants or not os.path.isfile(shenkin_filt_out):
-                    shenkin_filt = format_shenkin(shenkin, prot_cols, shenkin_filt_out)
-                    log.info("Filtered conservation data")
-                else:
-                    shenkin_filt = pd.read_pickle(shenkin_filt_out)
-                    log.debug("Conservation data already filtered")
-
-                log.info("Conservation scores calculated for Segment {} of {}".format(str(segment), acc))
-
-                ### VARIATION, POSSIBLY NEED TO IMPLEMENT CLINVAR AS WELL
-
-                aln_obj = Bio.AlignIO.read(hits_aln_rf, "stockholm") #crashes if target protein is not human!
-                aln_info_path = os.path.join(variants_dir, "{}_{}_jackhmmer_rf_info_table.p.gz".format(acc, str(segment)))
-                if override_variants or not os.path.isfile(aln_info_path):
-                    aln_info = varalign.alignments.alignment_info_table(aln_obj)
-                    aln_info.to_pickle(aln_info_path)
-                    log.info("Generated MSA info table")
-                else:
-                    aln_info = pd.read_pickle(aln_info_path)
-                    log.debug("Loaded MSA info table")
-                
-                log.info("There are {} sequences in MSA for Segment {}".format(len(aln_info), str(segment)))
-
-                indexed_mapping_path = os.path.join(variants_dir, "{}_{}_jackhmmer_rf_mappings.p.gz".format(acc, str(segment)))
-                if override_variants or not os.path.isfile(indexed_mapping_path):
-                    indexed_mapping_table = varalign.align_variants._mapping_table(aln_info) # now contains all species
-                    indexed_mapping_table.to_pickle(indexed_mapping_path) # important for merging later on
-                    log.info("Generated MSA mapping table")
-                else:
-                    indexed_mapping_table = pd.read_pickle(indexed_mapping_path)
-                    log.debug("Loaded MSA mapping table")    
-
-                aln_info_human = aln_info[aln_info.species == "HUMAN"]
-
-                if len(aln_info_human) > 0:
-                    log.info("There are {} HUMAN sequences in the MSA for Segment {} of {}".format(len(aln_info_human), str(segment), acc))
-                
-                    human_hits_msa = os.path.join(variants_dir, "{}_{}_jackhmmer_rf_human.sto".format(acc, str(segment)))
+                    miss_df_out = os.path.join(results_dir, "{}_{}_missense_df.pkl".format(acc, str(segment)))
                     
-                    if override_variants or not os.path.isfile(human_hits_msa):
-                        get_human_subset_msa(hits_aln_rf, human_hits_msa)
-                    else:
-                        pass
-
-                    ### copy ensemble SQLite to directory where this is being executed
-                    cp_path = cp_sqlite(wd)
-                    log.debug("ENSEMBL_CACHE SQLite copied correctly")
-
-                    variant_table_path = os.path.join(variants_dir, "{}_{}_jackhmmer_rf_human_variants.p.gz".format(acc, str(segment)))
-                    if override_variants or not os.path.isfile(variant_table_path):
-                        #vcf_out_path = os.path.join(main_dir , "results", "{}_alignment_variants.vcf".format(seg_id))
-                        try:
-                            variants_table = varalign.align_variants.align_variants(aln_info_human, path_to_vcf = gnomad_vcf,  include_other_info = False, write_vcf_out = False)     
-                        except ValueError as e:
-                            print("{}\t{}".format(seg_id, str(12)), flush = True)
-                            variants_table = pd.DataFrame()
-                            log.warning("No variants were retrieved for Segment {} of {}".format(str(segment), acc))
-
-                        variants_table.to_pickle(variant_table_path)
-
-                    else:
-                        variants_table = pd.read_pickle(variant_table_path)
-
-                    ### remove ensembl SQLite from directory where this is being executed
-                    rm_sqlite(cp_path)
-                    log.debug("ENSEMBL_CACHE SQLite removed correctly")
-
-                    if variants_table.empty: # variant table is empty. E.g., P03915. Only 3 human sequences. They are all mitochondrial (not in gnomAD)
-                        pass
-
-                    else:
-                        # in order to be able to read the vcf and parse the DB, the ensemble.cache.sqlite file must be in the ./.varalign directory
-
-                        human_miss_vars = format_variant_table(variants_table, prot_cols) # GET ONLY MISSENSE VARIANTS ROWS
-                        human_miss_vars_msa_out = os.path.join(variants_dir, "{}_{}_jackhmmer_rf_human_missense_variants_seqs.sto".format(acc, str(segment)))
-
-                        miss_df_out = os.path.join(results_dir, "{}_{}_missense_df.pkl".format(acc, str(segment)))
-                        
-                        if override or not os.path.isfile(miss_df_out): # we leave it as override and not override_variants to fix the wrong pseudocounts
-                            missense_variants_df = get_missense_df(
-                                hits_aln_rf, human_miss_vars,
-                                shenkin_filt, prot_cols, human_miss_vars_msa_out
-                            )
-
-                            if missense_variants_df.empty:
-                                print("{}\t{}".format(seg_id, str(13)), flush = True)
-                                log.warning("No missense variants found for MSA of Segment {} of {}".format(str(segment), acc))
-                                pass
-
-                            else:
-                                missense_variants_df = add_miss_class(
-                                    missense_variants_df, miss_df_out,
-                                    cons_col = "abs_norm_shenkin",
-                                )
-                                log.info("Calculated missense dataframe")
-                        else:
-                            missense_variants_df = pd.read_pickle(miss_df_out)
-                            log.debug("Loaded missense dataframe")
+                    if override or not os.path.isfile(miss_df_out): # we leave it as override and not override_variants to fix the wrong pseudocounts
+                        missense_variants_df = get_missense_df(
+                            hits_aln_rf, human_miss_vars,
+                            shenkin_filt, prot_cols, human_miss_vars_msa_out
+                        )
 
                         if missense_variants_df.empty:
+                            print("{}\t{}".format(seg_id, str(13)), flush = True)
+                            log.warning("No missense variants found for MSA of Segment {} of {}".format(str(segment), acc))
                             pass
-                            #log.info("No missense variants found for MSA of Segment {} of {}".format(str(segment), acc))
-                                
+
                         else:
-                            # ADDS COLUMNS FROM MISSENSE DF TO SHENKIN FILT DF, CONSERVATION AND VARIATION DATA ABOUT HUMAN VARIANT SUB MSA
-                            shenkin_filt.loc[:, "human_shenkin"] = missense_variants_df.shenkin
-                            shenkin_filt.loc[:, "human_occ"] = missense_variants_df.occ
-                            shenkin_filt.loc[:, "human_gaps"] = missense_variants_df.gaps
-                            shenkin_filt.loc[:, "human_occ_pct"] = missense_variants_df.occ_pct
-                            shenkin_filt.loc[:, "human_gaps_pct"] = missense_variants_df.gaps_pct
-                            shenkin_filt.loc[:, "variants"] = missense_variants_df.variants
-                            shenkin_filt.loc[:, "oddsratio"] = missense_variants_df.oddsratio
-                            shenkin_filt.loc[:, "pvalue"] = missense_variants_df.pvalue
-                            shenkin_filt.loc[:, "se_OR"] = missense_variants_df.se_OR
+                            missense_variants_df = add_miss_class(
+                                missense_variants_df, miss_df_out,
+                                cons_col = "abs_norm_shenkin",
+                            )
+                            log.info("Calculated missense dataframe")
+                    else:
+                        missense_variants_df = pd.read_pickle(miss_df_out)
+                        log.debug("Loaded missense dataframe")
 
-                else:
-                    print("{}\t{}".format(seg_id, str(14)), flush = True)
-                    log.warning("No human sequences for Segment {} of {}".format(str(segment), acc))
-                    pass
+                    if missense_variants_df.empty:
+                        pass
+                        #log.info("No missense variants found for MSA of Segment {} of {}".format(str(segment), acc))
+                            
+                    else:
+                        # ADDS COLUMNS FROM MISSENSE DF TO SHENKIN FILT DF, CONSERVATION AND VARIATION DATA ABOUT HUMAN VARIANT SUB MSA
+                        shenkin_filt.loc[:, "human_shenkin"] = missense_variants_df.shenkin
+                        shenkin_filt.loc[:, "human_occ"] = missense_variants_df.occ
+                        shenkin_filt.loc[:, "human_gaps"] = missense_variants_df.gaps
+                        shenkin_filt.loc[:, "human_occ_pct"] = missense_variants_df.occ_pct
+                        shenkin_filt.loc[:, "human_gaps_pct"] = missense_variants_df.gaps_pct
+                        shenkin_filt.loc[:, "variants"] = missense_variants_df.variants
+                        shenkin_filt.loc[:, "oddsratio"] = missense_variants_df.oddsratio
+                        shenkin_filt.loc[:, "pvalue"] = missense_variants_df.pvalue
+                        shenkin_filt.loc[:, "se_OR"] = missense_variants_df.se_OR
 
-                shenkin_mapped_out = os.path.join(results_dir, "{}_{}_ress_consvar.pkl".format(acc, str(segment)))
-                if override or not os.path.isfile(shenkin_mapped_out): # we leave it as override and not override_variants to fix the wrong pseudocounts
-                    aln_ids = list(set([seqid[0] for seqid in indexed_mapping_table.index.tolist() if acc in seqid[0]])) # THIS IS EMPTY IF QUERY SEQUENCE IS NOT FOUND
-                    n_aln_ids = len(aln_ids)
-                    if n_aln_ids != 1:
-                        log.warning("There are {} sequences matching accession for Segment {} in {}".format(str(n_aln_ids), str(segment), acc))
-                    mapped_data = merge_shenkin_df_and_mapping(shenkin_filt, indexed_mapping_table, aln_ids)
-                    mapped_data.to_pickle(shenkin_mapped_out)
-                else:
-                    mapped_data = pd.read_pickle(shenkin_mapped_out)
-                log.info("Conservation + variant data obtained for Segment {} of {}".format(str(segment), acc))
-
-                ### GENERATE SUMMARY TABLES
-
-                if not dssp_data.empty:
-                    mapped_data["AA"] = mapped_data.UniProt_ResNum.map(ress_AA_dict)
-                    mapped_data["RSA"] = mapped_data.UniProt_ResNum.map(ress_RSA_dict)
-                    mapped_data["SS"] = mapped_data.UniProt_ResNum.map(ress_SS_dict)
-                else:
-                    log.warning("Results table will not contain DSSP columns for Segment {} of {}".format(str(segment), acc))
-                    pass
-
-                mapped_data["binding_sites"] = mapped_data.UniProt_ResNum.map(bs_ress_membership_dict)
-                mapped_data.to_pickle(final_table_out)
-
-                log.info("Results available for Segment {} of {}".format(str(segment), acc))
             else:
-                log.info("Not running variants for Segment {} of {}".format(str(segment), acc))
+                print("{}\t{}".format(seg_id, str(14)), flush = True)
+                log.warning("No human sequences for Segment {} of {}".format(str(segment), acc))
+                pass
+
+            shenkin_mapped_out = os.path.join(results_dir, "{}_{}_ress_consvar.pkl".format(acc, str(segment)))
+            if override or not os.path.isfile(shenkin_mapped_out): # we leave it as override and not override_variants to fix the wrong pseudocounts
+                aln_ids = list(set([seqid[0] for seqid in indexed_mapping_table.index.tolist() if acc in seqid[0]])) # THIS IS EMPTY IF QUERY SEQUENCE IS NOT FOUND
+                n_aln_ids = len(aln_ids)
+                if n_aln_ids != 1:
+                    log.warning("There are {} sequences matching accession for Segment {} in {}".format(str(n_aln_ids), str(segment), acc))
+                mapped_data = merge_shenkin_df_and_mapping(shenkin_filt, indexed_mapping_table, aln_ids)
+                mapped_data.to_pickle(shenkin_mapped_out)
+            else:
+                mapped_data = pd.read_pickle(shenkin_mapped_out)
+            log.info("Conservation + variant data obtained for Segment {} of {}".format(str(segment), acc))
+
+            ### GENERATE SUMMARY TABLES
+
+            if not dssp_data.empty:
+                mapped_data["AA"] = mapped_data.UniProt_ResNum.map(ress_AA_dict)
+                mapped_data["RSA"] = mapped_data.UniProt_ResNum.map(ress_RSA_dict)
+                mapped_data["SS"] = mapped_data.UniProt_ResNum.map(ress_SS_dict)
+            else:
+                log.warning("Results table will not contain DSSP columns for Segment {} of {}".format(str(segment), acc))
+                pass
+
+            mapped_data["binding_sites"] = mapped_data.UniProt_ResNum.map(bs_ress_membership_dict)
+            mapped_data.to_pickle(final_table_out)
+
+            log.info("Results available for Segment {} of {}".format(str(segment), acc))
+            #else:
+            #    log.info("Not running variants for Segment {} of {}".format(str(segment), acc))
 
             print("{}\t{}".format(seg_id, str(0)), flush = True)
 
