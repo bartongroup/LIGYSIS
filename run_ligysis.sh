@@ -2,16 +2,16 @@
 
 #$ -cwd
 #$ -V
-#$ -N LIGYSIS_arr
+#$ -N LIGYSIS_BioLiP
 #$ -M 2394007@dundee.ac.uk
-# -m a
+#$ -m a
 #$ -t 1-5
 #$ -tc 1
-#$ -o logs/ligysis_pdb/o
-#$ -e logs/ligysis_pdb/e
+#$ -o logs/o
+#$ -e logs/e
 
 # Lookup task-array and cd to job directory to avoid possible tempfile collisions
-UP_ACC=$(sed "${SGE_TASK_ID}q;d" ./input/biolip_up_ids.txt)
+UP_ACC=$(sed "${SGE_TASK_ID}q;d" ./input/biolip_up_ids_filt.txt)
 
 dest=./output/${UP_ACC}
 
@@ -23,4 +23,4 @@ fi
 cd ${dest}
 
 # Run ligysis for each protein within its own directory
-python3.6 ./../../ligysis.py --transform --experimental --variants --override ${UP_ACC}
+python3.6 ./../../ligysis.py ${UP_ACC}

@@ -6,6 +6,12 @@ INPUT_FOLDER = os.path.join(BASE_DIR, "input")
 
 OUTPUT_FOLDER = os.path.join(BASE_DIR, "output")
 
+LOGS_FOLDER = os.path.join(BASE_DIR, "logs")
+
+STDERR_FOLDER = os.path.join(LOGS_FOLDER, "e")
+
+STDOUT_FOLDER = os.path.join(LOGS_FOLDER, "o")
+
 DATA_FOLDER = os.path.join(BASE_DIR, "data")
 
 MOLS_FOLDER = os.path.join(DATA_FOLDER, "bound_mols")
@@ -16,4 +22,4 @@ EXP_FOLDER = os.path.join(DATA_FOLDER, "exp")
 
 MATS_FOLDER = os.path.join(DATA_FOLDER, "supp_mats")
 
-SEGMENT_FOLDER = os.path.join(DATA_FOLDER, "segment_data")
+SEGMENT_FOLDER = os.path.join(DATA_FOLDER, "segments")
