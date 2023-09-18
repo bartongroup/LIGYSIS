@@ -289,7 +289,7 @@ def transform_all_files(pdb_files, matrices, chains, raw_dir, clean_dir, trans_d
     the coordinates according to a transformation matrix
     """
     for i, pdb_in in enumerate(pdb_files):
-        pdb_root, _ = os.path.splitext(os.path.basename(pdb_in))
+        pdb_root, _ = os.path.splitext(os.path.splitext(os.path.basename(pdb_in))[0])
         pdb_out = os.path.join(raw_dir, pdb_root[3:] + ".pdb")
         #pdb_out = os.path.join(raw_dir, os.path.basename(pdb_in)[3:].replace(".ent.gz", ".pdb"))
         pdb_id = os.path.basename(pdb_in)[3:7]
@@ -476,7 +476,7 @@ def get_bound_mols(pdb_id, bound_mols_dir):
     df_mols.set_index("bmid", inplace = True)
     return df_mols
 
-def get_bound_mol_inters(pdb_id, bm_id, bound_mol_inters_dir):
+def get_bound_mol_inters(pdb_id, bm_id, lig_lab_dict, bound_mol_inters_dir):
     """
     This function returns a table containing the protein-ligand interactions
     for a given PDB ID and a biomolecule ID.
@@ -1088,7 +1088,8 @@ def generate_subset_aln(aln_in, aln_fmt, df, aln_out = None):
     if n_variant_seqs == 0:
         return ""
     else:
-        log.info("There are {} sequences with variants for {}".format(str(n_variant_seqs), aln_in))
+        prot, seg, _ = os.path.basename(aln_in).split("_")
+        log.info("There are {} sequences with variants for segment {} of {}".format(str(n_variant_seqs), seg, prot))
     if aln_out == None:
         pref, fmt = aln_in.split(".")
         aln_out =  pref + "_variant_seqs." + fmt
@@ -1542,7 +1543,7 @@ if __name__ == '__main__': ### command to run form command line: python3.6 frags
 
             ### GETTING EXPERIMENTAL DATA FROM ALL STRUCTURES
 
-            experimental_out = os.path.join(results_dir, "{}_{}_strs_exp.pkl".format(acc, str(segment)))
+            experimental_out = os.path.join(results_dir, "{}_{}_{}_{}_strs_exp.pkl".format(acc, str(segment), experimental_methods, str(resolution)))
 
             if override or not os.path.isfile(experimental_out):
                 exp_data_df = get_experimental_data(pdb_ids, EXP_FOLDER, experimental_out)
@@ -1642,7 +1643,7 @@ if __name__ == '__main__': ### command to run form command line: python3.6 frags
 
             ### OBTAINING PROTEIN-LIGAND FINGERPRINTS
             
-            fps_out = os.path.join(results_dir, "{}_{}_ligs_fingerprints.pkl".format(acc, str(segment))) #fps: will stand for fingerprints. update with main_dir and so on.
+            fps_out = os.path.join(results_dir, "{}_{}_{}_{}_ligs_fingerprints.pkl".format(acc, str(segment), experimental_methods, str(resolution))) #fps: will stand for fingerprints. update with main_dir and so on.
             pdb_set = segment_pdbs[segment]
             log.info("There are {} unique PDBs for Segment {} of {}".format(str(len(pdb_set)), str(segment), acc))
             all_ligs_pdbs_segment = [pdb for pdb in all_ligs_pdbs if pdb in pdb_set] # filtering pdbs so only data about segment is retrieved
@@ -1708,7 +1709,7 @@ if __name__ == '__main__': ### command to run form command line: python3.6 frags
 
             ### GETTING PDB-UNIPROT SIFTS MAPPING
 
-            sifts_out = os.path.join(results_dir, "{}_{}_strs_sifts.pkl".format(acc, str(segment)))
+            sifts_out = os.path.join(results_dir, "{}_{}_{}_{}_strs_sifts.pkl".format(acc, str(segment), experimental_methods, str(resolution)))
 
             if override or not os.path.isfile(sifts_out):
                 sifts_mapping = {}
@@ -1768,7 +1769,7 @@ if __name__ == '__main__': ### command to run form command line: python3.6 frags
                 dump_pickle(irel_matrix, irel_mat_out)
                 log.info("Calcualted intersection matrix")
             else:
-                load_pickle(irel_mat_out)
+                irel_matrix = load_pickle(irel_mat_out)
                 log.info("Loaded intersection matrix")
             if n_ligs == 1:
                 cluster_ids = [0]
@@ -1807,13 +1808,13 @@ if __name__ == '__main__': ### command to run form command line: python3.6 frags
 
             chimera_atom_specs = get_chimera_data(cluster_id_dict)
 
-            attr_out = os.path.join(results_dir, "{}_{}_{}_{}_pdbe_kb_scipy_{}_{}.attr".format(acc, str(segment), experimental_methods, str(resolution), lig_clust_method, lig_clust_dist))
+            attr_out = os.path.join(results_dir, "{}_{}_{}_{}_{}_{}.attr".format(acc, str(segment), experimental_methods, str(resolution), lig_clust_method, lig_clust_dist))
             
             if override or not os.path.isfile(attr_out):
                 
                 write_chimera_attr(attr_out, chimera_atom_specs, cluster_ids)
 
-            chimera_script_out = os.path.join(results_dir, "{}_{}_{}_{}_pdbe_kb_scipy_{}_{}.com".format(acc, str(segment), experimental_methods, str(resolution), lig_clust_method, lig_clust_dist))
+            chimera_script_out = os.path.join(results_dir, "{}_{}_{}_{}_{}_{}.com".format(acc, str(segment), experimental_methods, str(resolution), lig_clust_method, lig_clust_dist))
 
             ### IMPLEMENT CHIMERA OPENING SCRIPT: opens only those PDBs that are actually binding ligands. could be less than 50% of total chains
 
