@@ -12,7 +12,7 @@ gnomad_vcf = /homes/smacgowan/NOBACK/resources/gnomad/gnomad.exomes.r2.0.1.sites
 pdb_db_path = /cluster/gjb_lab/db/NOBACK/mirrors/pdb/data/structures/divided/pdb/
 sifts_db_path = /cluster/gjb_lab/db/NOBACK/local_databases/sifts_current/split_xml/
 sifts_db_path2 = /cluster/gjb_lab/2394007/data/all_species/sifts
-swissprot = /cluster/gjb_lab/2394007/data/all_species/swissprot_15_09_2023.fasta
+swissprot = /cluster/gjb_lab/2394007/data/all_species/swissprot_15_09_2023_NR.fasta
 
 [formats]
 MSA_fmt = stockholm

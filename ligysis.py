@@ -30,7 +30,7 @@ import varalign.alignments
 from urllib.error import HTTPError
 from urllib.error import URLError
 
-from config import BASE_DIR, INPUT_FOLDER, OUTPUT_FOLDER, DATA_FOLDER, MOLS_FOLDER, INTERS_FOLDER, EXP_FOLDER, MATS_FOLDER, SEGMENT_FOLDER
+from config import BASE_DIR, OUTPUT_FOLDER, MOLS_FOLDER, INTERS_FOLDER, EXP_FOLDER, MATS_FOLDER, SEGMENT_FOLDER
 
 ### SETTING UP LOGGER
 
@@ -1408,18 +1408,12 @@ if __name__ == '__main__': ### command to run form command line: python3.6 frags
     parser.add_argument("up_acc", type = str, help = "UniProt accession number of the protein of interest.")
     parser.add_argument("--override", help = "Override any previously generated files.", action = "store_true")
     parser.add_argument("--override_variants", help = "Override any previously generated files (ONLY VARIANTS SECTION).", action = "store_true")
-    #parser.add_argument("--no_transform", help = "Cleans, transforms, and simplifies structures.", action = "store_true")
-    #parser.add_argument("--no_experimental", help = "Downloads, and processes experimental data for all structures.", action = "store_true")
-    #parser.add_argument("--no_variants", help = "Retrieves Human variants form MSA and generates tables.", action = "store_true")
 
     args = parser.parse_args()
 
     acc = args.up_acc
     override = args.override
     override_variants = args.override_variants
-    #run_transform = args.transform
-    #run_experimental = args.experimental
-    #run_variants = args.variants
 
     for arg, value in sorted(vars(args).items()):
         log.info("Argument %s: %r", arg, value)
@@ -1537,13 +1531,18 @@ if __name__ == '__main__': ### command to run form command line: python3.6 frags
 
             pdb_ids = [pdb_id for pdb_id in pdb_ids if pdb_id in all_ligs_pdbs] # filters out pdb_ids that do not present BioLiP-defined LOIs
 
-            pdb_files = [os.path.join(pdb_db_path, pdb_id[1:3], "pdb{}.ent.gz".format(pdb_id)) for pdb_id in pdb_ids]
+            if pdb_ids == []: # there are no BioLiP LOI-binding structures for this segment
+                print("{}\t{}".format(seg_id, str(5)), flush = True)
+                log.warning("Segment {} of {} does not present any ligand-binding structures".format(str(segment), acc))
+                continue
 
-            #if run_experimental:
+            pdb_files = [os.path.join(pdb_db_path, pdb_id[1:3], "pdb{}.ent.gz".format(pdb_id)) for pdb_id in pdb_ids]
 
             ### GETTING EXPERIMENTAL DATA FROM ALL STRUCTURES
 
             experimental_out = os.path.join(results_dir, "{}_{}_{}_{}_strs_exp.pkl".format(acc, str(segment), experimental_methods, str(resolution)))
+
+            #print(pdb_ids)
 
             if override or not os.path.isfile(experimental_out):
                 exp_data_df = get_experimental_data(pdb_ids, EXP_FOLDER, experimental_out)
@@ -1642,11 +1641,19 @@ if __name__ == '__main__': ### command to run form command line: python3.6 frags
                 continue 
 
             ### OBTAINING PROTEIN-LIGAND FINGERPRINTS
-            
+
             fps_out = os.path.join(results_dir, "{}_{}_{}_{}_ligs_fingerprints.pkl".format(acc, str(segment), experimental_methods, str(resolution))) #fps: will stand for fingerprints. update with main_dir and so on.
             pdb_set = segment_pdbs[segment]
             log.info("There are {} unique PDBs for Segment {} of {}".format(str(len(pdb_set)), str(segment), acc))
-            all_ligs_pdbs_segment = [pdb for pdb in all_ligs_pdbs if pdb in pdb_set] # filtering pdbs so only data about segment is retrieved
+            #all_ligs_pdbs_segment = pdb_set # this should be the same as the line below commented, as we are already using BioLiP LOIs
+            all_ligs_pdbs_segment = [pdb for pdb in all_ligs_pdbs if pdb in pdb_set] # filtering pdbs so only data about segment is retrieved.
+            try:
+                assert set(pdb_set) == set(all_ligs_pdbs_segment)
+                #log.info("ASSERTION CORRECT: PDBs in segment had already been filtered by BioLiP")
+            except AssertionError as e:
+                log.critical("PDB IDs do not match for Segment {} of {}".format(str(segment), acc))
+                continue 
+
             log.info("There are {} unique ligand-binding PDBs for Segment {} of {}".format(str(len(all_ligs_pdbs_segment)), str(segment), acc))
 
             if override or not os.path.isfile(fps_out):
@@ -1971,7 +1978,7 @@ if __name__ == '__main__': ### command to run form command line: python3.6 frags
             log.info("MSA realised for Segment {} of {}".format(str(segment), acc))
 
             ### CONSERVATION ANALYSIS
-
+            #print(hits_aln, best_seq_id)
             prot_cols = prot_cols = get_target_prot_cols(hits_aln, best_seq_id)
             shenkin_out = os.path.join(variants_dir, "{}_{}_rf_shenkin.pkl".format(acc, str(segment)))
             if override_variants or not os.path.isfile(shenkin_out):
@@ -1982,6 +1989,7 @@ if __name__ == '__main__': ### command to run form command line: python3.6 frags
                 log.debug("Loaded conservation data")
             
             shenkin_filt_out = os.path.join(variants_dir, "{}_{}_rf_shenkin_filt.pkl".format(acc, str(segment)))
+            #print(prot_cols)
             if override_variants or not os.path.isfile(shenkin_filt_out):
                 shenkin_filt = format_shenkin(shenkin, prot_cols, shenkin_filt_out)
                 log.info("Filtered conservation data")
