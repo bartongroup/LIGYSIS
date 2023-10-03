@@ -489,7 +489,7 @@ def get_bound_mol_inters(pdb_id, bm_id, lig_lab_dict, bound_mol_inters_dir):
         try:
             bound_inters_df = pd.read_json("https://www.ebi.ac.uk/pdbe/graph-api/pdb/bound_molecule_interactions/{}/{}".format(pdb_id, bm_id), convert_axes = False, dtype = False) # I THINK WE SHOULD SAVE THESE
         except:
-            log.critical("Bound molecule interactions data were not recovered for {}_{}".format(pdb_id, bm_id))
+            log.error("Bound molecule interactions data were not recovered for {}_{}".format(pdb_id, bm_id))
             return pd.DataFrame()
         bound_inters_df.to_json(bound_mol_inters_out)
     bound_inters_dff = pd.DataFrame(bound_inters_df.loc[0, pdb_id]["interactions"])
@@ -531,18 +531,24 @@ def get_fingerprints(pdb_id, bound_mols_dir, bound_mol_inters_dir, out = None):
             else:
                 log.debug("Attempt #{} to get interactions for {} in {}".format(trying_counter[bm_id], bm_id, pdb_id))
                 bm_id_df = get_bound_mol_inters(pdb_id, bm_id, lig_lab_dict, bound_mol_inters_dir)
-                bm_id_df["bm_id"] = bm_id
-                bm_id_dfs.append(bm_id_df)
                 bm_ids_copy.remove(bm_id) # trying while loop
+                if bm_id_df.empty: # Interactions retrieval failed for this bm_id
+                    pass
+                else:
+                    bm_id_df["bm_id"] = bm_id
+                    bm_id_dfs.append(bm_id_df)
         except HTTPError as e:
             log.debug("Attempt #{} to retrieve interactions for {} in {} failed".format(str(trying_counter[bm_id]), bm_id, pdb_id))
             trying_counter[bm_id] += 1
     
+    #print(bm_id_dfs)
     if bm_id_dfs == []: # Interactions retrieval failed for ALL bm_ids of this pdb
         log.error("None of the interactions were retrieved from GRAPH-API for {}".format(pdb_id))
         return {}
     else: # data has been retrieved about bms
         pdb_id_inters_df = pd.concat(bm_id_dfs)
+
+        #pdb_id_inters_df)
         
         lig_lab_inters = {}
         lig_labs = pdb_id_inters_df.lig_lab.unique().tolist()
@@ -642,7 +648,7 @@ def filter_non_relevant_ligs(fingerprints_dict, relevant_ligs):
         fingerprints_dict_filt[k1] = {}
         for k2, v2 in v1.items(): #k2 is lig_name
             lig_name = k2.split("_")[0]
-            if lig_name in relevant_ligs:
+            if lig_name in relevant_ligs[k1]: # this uses the biolip LOIs for the pdb of interest
                 fingerprints_dict_filt[k1][k2] = v2
             else:
                 continue
@@ -1643,10 +1649,16 @@ if __name__ == '__main__': ### command to run form command line: python3.6 frags
             ### OBTAINING PROTEIN-LIGAND FINGERPRINTS
 
             fps_out = os.path.join(results_dir, "{}_{}_{}_{}_ligs_fingerprints.pkl".format(acc, str(segment), experimental_methods, str(resolution))) #fps: will stand for fingerprints. update with main_dir and so on.
-            pdb_set = segment_pdbs[segment]
+            #pdb_set = segment_pdbs[segment] # this is wrong, because it grabs the PDB IDs from segment_pdbs, which has not been filtered by BioLip.
+            pdb_set = segment_df.pdb_id.unique().tolist()
             log.info("There are {} unique PDBs for Segment {} of {}".format(str(len(pdb_set)), str(segment), acc))
             #all_ligs_pdbs_segment = pdb_set # this should be the same as the line below commented, as we are already using BioLiP LOIs
             all_ligs_pdbs_segment = [pdb for pdb in all_ligs_pdbs if pdb in pdb_set] # filtering pdbs so only data about segment is retrieved.
+            #print("PDBs in Segment: {}".format(segment_pdbs[segment]))
+            #print("PDBs in BioLiP: {}".format(all_ligs_pdbs))
+            #print("PDBs in Segment & BioLiP (method 1): {}".format(pdb_set))
+            #print("PDBs in Segment & BioLiP (method 2): {}".format(all_ligs_pdbs_segment))
+            #print(all_ligs_pdbs, pdb_set, all_ligs_pdbs_segment)
             try:
                 assert set(pdb_set) == set(all_ligs_pdbs_segment)
                 #log.info("ASSERTION CORRECT: PDBs in segment had already been filtered by BioLiP")
@@ -1685,9 +1697,7 @@ if __name__ == '__main__': ### command to run form command line: python3.6 frags
 
             ### FILTER OUT NON-LOIS 
 
-            #lig_fps_filt1 = filter_non_relevant_ligs(lig_fps, relevant_ligs) # FILTERS OUT NON-LOIs INTERACTIONS. THIS IS WHERE WE WOULD CHECK FOR LIGAND SIZE AS WELL.
-
-            lig_fps_filt1 = lig_fps # avoiding filtering, as we are already using BioLiP LOIs
+            lig_fps_filt1 = filter_non_relevant_ligs(lig_fps, biolip_dict[acc]) # FILTERS OUT NON-LOIs INTERACTIONS. THIS IS WHERE WE WOULD CHECK FOR LIGAND SIZE AS WELL.
 
             n_relevant_ligs = sum([len(rel_ligs) for rel_ligs in lig_fps_filt1.values()])
 
@@ -1801,7 +1811,7 @@ if __name__ == '__main__': ### command to run form command line: python3.6 frags
 
             ### TRANSFORMATION OF PROTEIN-LIGAND INTERACTIONS CONTAINING PDBs
 
-            transform_all_files(pdb_files, matrices, chains, raw_dir, clean_dir, trans_dir) # this is wrong. pdb_files and chains do not match
+            transform_all_files(pdb_files, matrices, chains, raw_dir, clean_dir, trans_dir) # I think we lose all ligands here that are on independent chains. This is because they don't have a matrix (no backbone)
 
             log.info("Structures cleaned and transformed for Segment {} of {}".format(str(segment), acc))
 

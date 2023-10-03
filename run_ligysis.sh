@@ -5,7 +5,7 @@
 #$ -N LIGYSIS_BioLiP
 #$ -M 2394007@dundee.ac.uk
 #$ -m a
-#$ -t 1782-10000
+#$ -t 4113-10000
 #$ -tc 1
 #$ -o logs/o
 #$ -e logs/e
@@ -23,4 +23,4 @@ fi
 cd ${dest}
 
 # Run ligysis for each protein within its own directory
-python3.6 ./../../ligysis.py ${UP_ACC}
+python3.6 ./../../ligysis.py ${UP_ACC} --override
