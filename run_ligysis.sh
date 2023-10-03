@@ -5,10 +5,12 @@
 #$ -N LIGYSIS_BioLiP
 #$ -M 2394007@dundee.ac.uk
 #$ -m a
-#$ -t 1-100
-#$ -tc 1
+#$ -t 5101-10000
+#$ -tc 5
 #$ -o logs/r2/o
 #$ -e logs/r2/e
+# -adds l_hard hostname '!(m910-*|c6*) #|m910-6*)
+
 
 # Lookup task-array and cd to job directory to avoid possible tempfile collisions
 UP_ACC=$(sed "${SGE_TASK_ID}q;d" ./input/biolip_up_ids_filt.txt)

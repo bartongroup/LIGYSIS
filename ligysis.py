@@ -1649,16 +1649,9 @@ if __name__ == '__main__': ### command to run form command line: python3.6 frags
             ### OBTAINING PROTEIN-LIGAND FINGERPRINTS
 
             fps_out = os.path.join(results_dir, "{}_{}_{}_{}_ligs_fingerprints.pkl".format(acc, str(segment), experimental_methods, str(resolution))) #fps: will stand for fingerprints. update with main_dir and so on.
-            #pdb_set = segment_pdbs[segment] # this is wrong, because it grabs the PDB IDs from segment_pdbs, which has not been filtered by BioLip.
             pdb_set = segment_df.pdb_id.unique().tolist()
             log.info("There are {} unique PDBs for Segment {} of {}".format(str(len(pdb_set)), str(segment), acc))
-            #all_ligs_pdbs_segment = pdb_set # this should be the same as the line below commented, as we are already using BioLiP LOIs
             all_ligs_pdbs_segment = [pdb for pdb in all_ligs_pdbs if pdb in pdb_set] # filtering pdbs so only data about segment is retrieved.
-            #print("PDBs in Segment: {}".format(segment_pdbs[segment]))
-            #print("PDBs in BioLiP: {}".format(all_ligs_pdbs))
-            #print("PDBs in Segment & BioLiP (method 1): {}".format(pdb_set))
-            #print("PDBs in Segment & BioLiP (method 2): {}".format(all_ligs_pdbs_segment))
-            #print(all_ligs_pdbs, pdb_set, all_ligs_pdbs_segment)
             try:
                 assert set(pdb_set) == set(all_ligs_pdbs_segment)
                 #log.info("ASSERTION CORRECT: PDBs in segment had already been filtered by BioLiP")
@@ -2145,7 +2138,7 @@ if __name__ == '__main__': ### command to run form command line: python3.6 frags
             mapped_data["binding_sites"] = mapped_data.UniProt_ResNum.map(bs_ress_membership_dict)
             mapped_data.to_pickle(final_table_out)
 
-            log.info("Results available for Segment {} of {}".format(str(segment), acc))
+            log.info("Segment {} of {} finished successfully".format(str(segment), acc))
             #else:
             #    log.info("Not running variants for Segment {} of {}".format(str(segment), acc))
 
