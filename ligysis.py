@@ -1427,7 +1427,7 @@ if __name__ == '__main__': ### command to run form command line: python3.6 frags
     ### RETRIEVES ALL SUPERPOSITION MATRICES FOR PDB IDS IN acc, EXCEPT IF THERE ARE NOT ANY SOLVED STRUCTURES
 
     supp_mat_out = os.path.join(MATS_FOLDER, "{}_supp_mat.json".format(acc)) # had to change to json because of pickle issue
-    if os.path.isfile(supp_mat_out):
+    if os.path.isfile(supp_mat_out) and not override:
         matrices_df = pd.read_json(supp_mat_out, convert_axes = False, dtype = False)
         log.info("Matrix table was read for {} and contains {} chains".format(acc, str(len(matrices_df))))
     else:
@@ -1462,7 +1462,7 @@ if __name__ == '__main__': ### command to run form command line: python3.6 frags
     ### READING SUPERPOSITION DATA FROM GRAPH-API. CONTAINS INFO ABOUT SEGMENTS.
 
     segment_data_out = os.path.join(SEGMENT_FOLDER, "{}_segments.json".format(acc)) # had to change to json because of pickle issue
-    if os.path.isfile(segment_data_out):
+    if os.path.isfile(segment_data_out) and not override:
         supp_data = pd.read_json(segment_data_out, convert_axes = False, dtype = False)
         log.info("Segment data is being read from json file")
     else:
