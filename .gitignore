@@ -1,4 +1,11 @@
 __pycache__
-output
-data
-logs
+output/
+data/
+logs/
+bs_ress_dicts/
+rep_mappings/
+rep_structures/
+res_tables/
+segment_rep_dicts/
+site_tables/
+sum_stats/

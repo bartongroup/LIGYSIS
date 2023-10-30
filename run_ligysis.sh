@@ -5,7 +5,7 @@
 #$ -N LIGYSIS_BioLiP
 #$ -M 2394007@dundee.ac.uk
 #$ -m a
-#$ -t 19374-19499
+#$ -t 12598
 #$ -tc 1
 #$ -o logs/r2/o
 #$ -e logs/r2/e
