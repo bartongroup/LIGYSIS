@@ -1444,8 +1444,8 @@ if __name__ == '__main__': ### command to run form command line: python3.6 frags
 
     biolip_dict = load_pickle(biolip_data)
     try:
-        all_ligs_pdbs = list(biolip_dict[acc].keys()) # NOW DONE WITH BIOLIP
-        n_all_ligs_pdbs = len(all_ligs_pdbs)
+        all_ligs_pdbs = list(biolip_dict[acc].keys()) # NOW DONE WITH BIOLIP, this will be a list of all PDB IDs that present LOIs for a given UniProt
+        n_all_ligs_pdbs = len(all_ligs_pdbs) # number of PDB IDs that present LOIs for a given UniProt
         log.info("There are {} ligand-binding structures for {}".format(str(n_all_ligs_pdbs), acc))
     except KeyError as e:
         log.warning("No ligand-binding structures for {}. Exiting programme".format(acc))
@@ -1475,7 +1475,7 @@ if __name__ == '__main__': ### command to run form command line: python3.6 frags
             print("{}\t{}".format(acc, str(17)), flush = True)
             sys.exit()
 
-    supp_data.index = range(1, len(supp_data)+1)
+    supp_data.index = range(1, len(supp_data)+1) # THIS MIGHT BE WRONG. UNSURE WHETHER ROWS OF THIS TABLE ARE SORTED BY SEGMENT NUMBER
     segments = supp_data.index.tolist()
     n_segments = len(supp_data)
     log.info("{} presents {} different structure coverage segments".format(acc, n_segments))
@@ -1651,7 +1651,7 @@ if __name__ == '__main__': ### command to run form command line: python3.6 frags
             fps_out = os.path.join(results_dir, "{}_{}_{}_{}_ligs_fingerprints.pkl".format(acc, str(segment), experimental_methods, str(resolution))) #fps: will stand for fingerprints. update with main_dir and so on.
             pdb_set = segment_df.pdb_id.unique().tolist()
             log.info("There are {} unique PDBs for Segment {} of {}".format(str(len(pdb_set)), str(segment), acc))
-            all_ligs_pdbs_segment = [pdb for pdb in all_ligs_pdbs if pdb in pdb_set] # filtering pdbs so only data about segment is retrieved.
+            all_ligs_pdbs_segment = [pdb for pdb in all_ligs_pdbs if pdb in pdb_set] # filtering pdbs so only data about segment is retrieved. Think it is unnecessary, but OK.
             try:
                 assert set(pdb_set) == set(all_ligs_pdbs_segment)
                 #log.info("ASSERTION CORRECT: PDBs in segment had already been filtered by BioLiP")

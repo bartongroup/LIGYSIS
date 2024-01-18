@@ -9,3 +9,11 @@ res_tables/
 segment_rep_dicts/
 site_tables/
 sum_stats/
+entry_names/
+mappings/OLD/pdb2up/
+mappings/OLD/up2pdb/
+mappings/pdb2up/
+mappings/up2pdb/
+site_tables_OLD/
+structures/cif/
+structures/pdb/
