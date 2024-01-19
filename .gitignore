@@ -17,3 +17,6 @@ mappings/up2pdb/
 site_tables_OLD/
 structures/cif/
 structures/pdb/
+biolip_up_ids_15000_accs.pkl
+ligysis_flask/
+sample_colors_hex.pkl

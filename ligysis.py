@@ -1475,7 +1475,10 @@ if __name__ == '__main__': ### command to run form command line: python3.6 frags
             print("{}\t{}".format(acc, str(17)), flush = True)
             sys.exit()
 
-    supp_data.index = range(1, len(supp_data)+1) # THIS MIGHT BE WRONG. UNSURE WHETHER ROWS OF THIS TABLE ARE SORTED BY SEGMENT NUMBER
+
+    supp_data.index = supp_data.index.astype(int) # before this index was a string, now it is an int
+    supp_data = supp_data.sort_index()  # now they can be sorted accordingly: 1, 2, 3, 4... instead of 1, 10, 11, 12...
+    supp_data.index = range(1,  (supp_data)+1) # THIS MIGHT BE WRONG. UNSURE WHETHER ROWS OF THIS TABLE ARE SORTED BY SEGMENT NUMBER
     segments = supp_data.index.tolist()
     n_segments = len(supp_data)
     log.info("{} presents {} different structure coverage segments".format(acc, n_segments))
