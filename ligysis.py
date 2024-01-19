@@ -51,6 +51,7 @@ biolip_data = config["dbs"].get("biolip_data")                              # lo
 ensembl_sqlite_path = config["dbs"].get("ensembl_sqlite")                   # location of a local copy of ENSEMBL mappings from UniProt Accession to genome (sqlite)
 gnomad_vcf = config["dbs"].get("gnomad_vcf")                                # location of gnomAD VCF. This database is not updated.
 pdb_db_path = config["dbs"].get("pdb_db_path")                              # location of local copy of PDB. This should be updated, but it might be missing some files.
+cif_assembly_db_path = config["dbs"].get("cif_assembly_db_path")            # location of local copy of assembly CIF DB. This should be updated, but it might be missing some files.
 sifts_db_path = config["dbs"].get("sifts_db_path")                          # location of a local copy of SIFTS. This database might not be updated, current version is Feb 2023.
 sifts_db_path2 = config["dbs"].get("sifts_db_path2")                        # location of a local backup copy of SIFTS. This database might not be updated, current version is Jul 2023.
 swissprot = config["dbs"].get("swissprot")                                  # location of MY local SwissProt copy. This database is not updated, current version is Nov 2021.
@@ -291,7 +292,6 @@ def transform_all_files(pdb_files, matrices, chains, raw_dir, clean_dir, trans_d
     for i, pdb_in in enumerate(pdb_files):
         pdb_root, _ = os.path.splitext(os.path.splitext(os.path.basename(pdb_in))[0])
         pdb_out = os.path.join(raw_dir, pdb_root[3:] + ".pdb")
-        #pdb_out = os.path.join(raw_dir, os.path.basename(pdb_in)[3:].replace(".ent.gz", ".pdb"))
         pdb_id = os.path.basename(pdb_in)[3:7]
         if os.path.isfile(pdb_out):
             pass
@@ -301,8 +301,6 @@ def transform_all_files(pdb_files, matrices, chains, raw_dir, clean_dir, trans_d
                     shutil.copyfileobj(f_in, f_out)
         file_clean_from = os.path.join(raw_dir, pdb_root[3:] + ".clean.pdb")
         file_clean_to = os.path.join(clean_dir, pdb_root[3:] + ".clean.pdb")
-        #file_clean_from = os.path.join(raw_dir, os.path.basename(pdb_out).replace(".pdb", ".clean.pdb"))
-        #file_clean_to = os.path.join(clean_dir, os.path.basename(pdb_out).replace(".pdb", ".clean.pdb"))
         if os.path.isfile(file_clean_to):
             pass
         else:
@@ -312,12 +310,12 @@ def transform_all_files(pdb_files, matrices, chains, raw_dir, clean_dir, trans_d
             shutil.move(file_clean_from, file_clean_to)
             log.info("{} cleaned".format(pdb_id))
         transformed_out = os.path.join(trans_dir, pdb_root[3:] + "_{}_trans.pdb".format(chains[i]))
-        #transformed_out = os.path.join(trans_dir, os.path.basename(pdb_out).replace(".pdb", "_{}_trans.pdb".format(chains[i])))
         if os.path.isfile(transformed_out):
             pass
         else:
             pdb_transform(file_clean_to, transformed_out, matrices[i], chains[i])
             log.info("{}_{} transformed".format(pdb_id, chains[i]))
+
 
 ## EXPERIMENTAL DATA AND VALIDATION
 
@@ -663,7 +661,6 @@ def filter_non_protein_inters(fingerprints_dict, acc, aa_resnames):
     protein interactions remain now.
     """
     fingerprints_dict_filt = {}
-    #fingerprints_dict_filt_v2 = {}
     for k1, v1 in fingerprints_dict.items():
         fingerprints_dict_filt[k1] = {}
         for k2, v2 in v1.items():
@@ -673,8 +670,7 @@ def filter_non_protein_inters(fingerprints_dict, acc, aa_resnames):
                 continue
             else:
                 fingerprints_dict_filt[k1][k2] = inter_ress
-                #fingerprints_dict_filt_v2[k1 + "_" + k2] = inter_ress
-    return fingerprints_dict_filt#, fingerprints_dict_filt_v2 # possibly do not need to return second dict
+    return fingerprints_dict_filt
 
 def get_pdb_lig_freq(lig_id):
     """
@@ -1479,7 +1475,6 @@ if __name__ == '__main__': ### command to run form command line: python3.6 frags
     supp_data.index = supp_data.index.astype(int) # before this index was a string, now it is an int
     supp_data = supp_data.sort_index()  # now they can be sorted accordingly: 1, 2, 3, 4... instead of 1, 10, 11, 12...
     supp_data.index = supp_data.index + 1 # now they are 1, 2, 3, 4... instead of 0, 1, 2, 3...
-    # supp_data.index = range(1,  (supp_data)+1) # THIS MIGHT BE WRONG. UNSURE WHETHER ROWS OF THIS TABLE ARE SORTED BY SEGMENT NUMBER
     segments = supp_data.index.tolist()
     n_segments = len(supp_data)
     log.info("{} presents {} different structure coverage segments".format(acc, n_segments))
@@ -1546,7 +1541,9 @@ if __name__ == '__main__': ### command to run form command line: python3.6 frags
                 log.warning("Segment {} of {} does not present any ligand-binding structures".format(str(segment), acc))
                 continue
 
-            pdb_files = [os.path.join(pdb_db_path, pdb_id[1:3], "pdb{}.ent.gz".format(pdb_id)) for pdb_id in pdb_ids]
+            pdb_files = [os.path.join(pdb_db_path, pdb_id[1:3], "pdb{}.ent.gz".format(pdb_id)) for pdb_id in pdb_ids] ### 2REMOVE (MOVING AWAY) used for superposition
+
+            cif_files = [os.path.join(cif_assembly_db_path, pdb_id[1:3], "{}-assembly1.cif.gz".format(pdb_id)) for pdb_id in pdb_ids] # used to run Arpeggio
 
             ### GETTING EXPERIMENTAL DATA FROM ALL STRUCTURES
 
@@ -1567,19 +1564,19 @@ if __name__ == '__main__': ### command to run form command line: python3.6 frags
             ### FILTERS OUT PDB IDS, AND FILES THAT ARE NOT FOUND IN LOCAL DATABASE
 
             files2remove, ids2remove = [[], []]
-            for i, pdb_file in enumerate(pdb_files):
+            for i, cif_file in enumerate(cif_files):
                 try:
-                    assert os.path.isfile(pdb_file)
+                    assert os.path.isfile(cif_file)
                 except AssertionError as e:
                     log.error("{} was not found in local database".format(pdb_ids[i]))
-                    files2remove.append(pdb_file) # saving pdbs not in database so they are removed later. removing whilst for loop is not a good idea
+                    files2remove.append(cif_file) # saving pdbs not in database so they are removed later. removing whilst for loop is not a good idea
                     ids2remove.append(pdb_ids[i])
                     
             pdb_ids = [pdb_id for pdb_id in pdb_ids if pdb_id not in ids2remove]
-            pdb_files = [pdb_file for pdb_file in pdb_files if pdb_file not in files2remove]
+            cif_files = [cif_file for cif_file in cif_files if cif_file not in files2remove]
 
-            if len(pdb_files) == 0:
-                log.error("None of the structures for Segment {} of {} are present in local database".format(str(segment), acc)) #this is actually a segment EC
+            if len(cif_files) == 0:
+                log.error("None of the mmCIF assembly structures for Segment {} of {} are present in local database".format(str(segment), acc)) #this is actually a segment EC
                 print("{}\t{}".format(seg_id, str(2)), flush = True)
                 continue
 
@@ -1617,20 +1614,20 @@ if __name__ == '__main__': ### command to run form command line: python3.6 frags
                 for i, pdb_id in enumerate(pdb_ids):
                     if pdb_id not in good_pdbs:
                         log.warning("{} did not meet quality standards".format(pdb_id))
-                        files2remove.append(pdb_files[i]) # saving pdbs not meeting QC so they are removed later. removing whilst for loop is not a good idea
+                        files2remove.append(cif_files[i]) # saving pdbs not meeting QC so they are removed later. removing whilst for loop is not a good idea
                         ids2remove.append(pdb_id)
 
                 pdb_ids = [pdb_id for pdb_id in pdb_ids if pdb_id not in ids2remove] # now only desired experimental method and resolution are kept
-                pdb_files = [pdb_file for pdb_file in pdb_files if pdb_file not in files2remove] # now only desired experimental method and resolution are kept
+                cif_files = [cif_file for cif_file in cif_files if cif_file not in files2remove] # now only desired experimental method and resolution are kept
 
-            log.info("Segment {} of {} presents {} high quality chains".format(str(segment), acc, str(len(pdb_files))))
+            log.info("Segment {} of {} presents {} high quality chains".format(str(segment), acc, str(len(cif_files))))
             
             ### CHECKING AMOUNT OF PDB FILES AND PDB IDS ARE THE SAME
 
             try:
-                assert len(pdb_ids) == len(pdb_files)
+                assert len(pdb_ids) == len(cif_files)
             except AssertionError as e:
-                log.critical("Number of pdb ids ({}) not equal to pdb_files ({}) for Segment {} of {}".format(str(len(pdb_ids)), str(len(pdb_files)), str(segment), acc))
+                log.critical("Number of pdb ids ({}) not equal to CIF files ({}) for Segment {} of {}".format(str(len(pdb_ids)), str(len(cif_files)), str(segment), acc))
 
             segment_df = segment_df.query('pdb_id in @pdb_ids') # filtering segment dataframe, so it only includes transformation data of those tructures present in local copy of PDB
             matrices = segment_df.matrix.tolist()
@@ -1645,7 +1642,8 @@ if __name__ == '__main__': ### command to run form command line: python3.6 frags
                 continue
 
             try:
-                assert segment_df.pdb_id.tolist() == [pdb_file.split("/")[-1][3:7] for pdb_file in pdb_files]
+                assert segment_df.pdb_id.tolist() == [cif_file.split("/")[-1][:4] for cif_file in cif_files]
+                # assert segment_df.pdb_id.tolist() == [pdb_file.split("/")[-1][3:7] for pdb_file in pdb_files]
             except AssertionError as e:
                 log.critical("PDB file IDs do not agree with those from Segment dataframe for Segment {} of {}".format(str(segment), acc))
                 continue 
