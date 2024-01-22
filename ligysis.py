@@ -51,6 +51,7 @@ biolip_data = config["dbs"].get("biolip_data")                              # lo
 ensembl_sqlite_path = config["dbs"].get("ensembl_sqlite")                   # location of a local copy of ENSEMBL mappings from UniProt Accession to genome (sqlite)
 gnomad_vcf = config["dbs"].get("gnomad_vcf")                                # location of gnomAD VCF. This database is not updated.
 pdb_db_path = config["dbs"].get("pdb_db_path")                              # location of local copy of PDB. This should be updated, but it might be missing some files.
+cif_db_path = config["dbs"].get("cif_db_path")                              # location of local copy of CIF. This should be updated, but it might be missing some files.
 cif_assembly_db_path = config["dbs"].get("cif_assembly_db_path")            # location of local copy of assembly CIF DB. This should be updated, but it might be missing some files.
 sifts_db_path = config["dbs"].get("sifts_db_path")                          # location of a local copy of SIFTS. This database might not be updated, current version is Feb 2023.
 sifts_db_path2 = config["dbs"].get("sifts_db_path2")                        # location of a local backup copy of SIFTS. This database might not be updated, current version is Jul 2023.
@@ -1662,6 +1663,12 @@ if __name__ == '__main__': ### command to run form command line: python3.6 frags
                 continue 
 
             log.info("There are {} unique ligand-binding PDBs for Segment {} of {}".format(str(len(all_ligs_pdbs_segment)), str(segment), acc))
+
+
+            ######################### NEW FROM 22/01/2024 RESTRUCTURE: USING ARPEGGIO #########################
+
+
+            ######################### NEW FROM 22/01/2024 RESTRUCTURE: USING ARPEGGIO #########################
 
             if override or not os.path.isfile(fps_out):
                 if all_ligs_pdbs_segment == []:

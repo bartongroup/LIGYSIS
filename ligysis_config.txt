@@ -10,6 +10,7 @@ biolip_data = /cluster/gjb_lab/2394007/data/all_species/BioLip_06_09_2023.pkl
 ensembl_sqlite = /cluster/gjb_lab/2394007/pandda_analysis/phase5/prots/.varalign/ensembl_cache.sqlite
 gnomad_vcf = /homes/smacgowan/NOBACK/resources/gnomad/gnomad.exomes.r2.0.1.sites.vcf.gz
 pdb_db_path = /cluster/gjb_lab/db/NOBACK/mirrors/pdb/data/structures/divided/pdb/
+cif_db_path = /cluster/gjb_lab/db/NOBACK/mirrors/pdb/data/structures/divided/mmCIF
 cif_assembly_db_path = /cluster/gjb_lab/db/NOBACK/mirrors/pdb/data/assemblies/mmCIF/divided
 sifts_db_path = /cluster/gjb_lab/db/NOBACK/local_databases/sifts_current/split_xml/
 sifts_db_path2 = /cluster/gjb_lab/2394007/data/all_species/sifts
