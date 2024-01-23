@@ -23,6 +23,8 @@ import scipy.stats as stats
 from prointvar.pdbx import PDBXreader, PDBXwriter
 from prointvar.sifts import SIFTSreader
 from prointvar.dssp import DSSPrunner, DSSPreader
+from prointvar.config import config as cfg
+from prointvar.fetchers import download_structure_from_pdbe
 
 import varalign.align_variants
 import varalign.alignments
@@ -47,6 +49,8 @@ config.read(config_path) # assuming this program is being executed one level abo
 clean_pdb_bin = config["binaries"].get("clean_pdb_bin")                     # location of clean_pdb.py.
 clean_pdb_python_bin = config["binaries"].get("clean_pdb_python_bin")       # location of python binary to run clean_pdb.py.
 dssp_bin = config["binaries"].get("dssp_bin")                               # location of DSSP binary.
+arpeggio_python_bin = config["binaries"].get("arpeggio_python_bin")         # location of python binary to run arpeggio.
+arpeggio_bin = config["binaries"].get("arpeggio_bin")                       # location of arpeggio binary.
 biolip_data = config["dbs"].get("biolip_data")                              # location of dictionary containing information about ligands in Biolip.
 ensembl_sqlite_path = config["dbs"].get("ensembl_sqlite")                   # location of a local copy of ENSEMBL mappings from UniProt Accession to genome (sqlite)
 gnomad_vcf = config["dbs"].get("gnomad_vcf")                                # location of gnomAD VCF. This database is not updated.
@@ -316,7 +320,6 @@ def transform_all_files(pdb_files, matrices, chains, raw_dir, clean_dir, trans_d
         else:
             pdb_transform(file_clean_to, transformed_out, matrices[i], chains[i])
             log.info("{}_{} transformed".format(pdb_id, chains[i]))
-
 
 ## EXPERIMENTAL DATA AND VALIDATION
 
@@ -1500,6 +1503,7 @@ if __name__ == '__main__': ### command to run form command line: python3.6 frags
             trans_dir = os.path.join(segment_dir, "trans")
             simple_dir = os.path.join(segment_dir, "simple")
             fps_dir = os.path.join(segment_dir, "fingerprints")
+            arpeggio_dir = os.path.join(segment_dir, "arpeggio")
             dssp_dir = os.path.join(segment_dir, "dssp")
             variants_dir = os.path.join(segment_dir, "variants")
             results_dir = os.path.join(segment_dir, "results")
@@ -1544,7 +1548,7 @@ if __name__ == '__main__': ### command to run form command line: python3.6 frags
 
             pdb_files = [os.path.join(pdb_db_path, pdb_id[1:3], "pdb{}.ent.gz".format(pdb_id)) for pdb_id in pdb_ids] ### 2REMOVE (MOVING AWAY) used for superposition
 
-            cif_files = [os.path.join(cif_assembly_db_path, pdb_id[1:3], "{}-assembly1.cif.gz".format(pdb_id)) for pdb_id in pdb_ids] # used to run Arpeggio
+            #cif_files = [os.path.join(cif_assembly_db_path, pdb_id[1:3], "{}-assembly1.cif.gz".format(pdb_id)) for pdb_id in pdb_ids] # used to run Arpeggio. Assuming 1 is the preferred (Not always true)
 
             ### GETTING EXPERIMENTAL DATA FROM ALL STRUCTURES
 
@@ -1564,22 +1568,22 @@ if __name__ == '__main__': ### command to run form command line: python3.6 frags
 
             ### FILTERS OUT PDB IDS, AND FILES THAT ARE NOT FOUND IN LOCAL DATABASE
 
-            files2remove, ids2remove = [[], []]
-            for i, cif_file in enumerate(cif_files):
-                try:
-                    assert os.path.isfile(cif_file)
-                except AssertionError as e:
-                    log.error("{} was not found in local database".format(pdb_ids[i]))
-                    files2remove.append(cif_file) # saving pdbs not in database so they are removed later. removing whilst for loop is not a good idea
-                    ids2remove.append(pdb_ids[i])
+            # files2remove, ids2remove = [[], []]
+            # for i, cif_file in enumerate(cif_files):
+            #     try:
+            #         assert os.path.isfile(cif_file)
+            #     except AssertionError as e:
+            #         log.error("{} was not found in local database".format(pdb_ids[i]))
+            #         files2remove.append(cif_file) # saving pdbs not in database so they are removed later. removing whilst for loop is not a good idea
+            #         ids2remove.append(pdb_ids[i])
                     
-            pdb_ids = [pdb_id for pdb_id in pdb_ids if pdb_id not in ids2remove]
-            cif_files = [cif_file for cif_file in cif_files if cif_file not in files2remove]
+            # pdb_ids = [pdb_id for pdb_id in pdb_ids if pdb_id not in ids2remove]
+            # cif_files = [cif_file for cif_file in cif_files if cif_file not in files2remove]
 
-            if len(cif_files) == 0:
-                log.error("None of the mmCIF assembly structures for Segment {} of {} are present in local database".format(str(segment), acc)) #this is actually a segment EC
-                print("{}\t{}".format(seg_id, str(2)), flush = True)
-                continue
+            # if len(cif_files) == 0:
+            #     log.error("None of the mmCIF assembly structures for Segment {} of {} are present in local database".format(str(segment), acc)) #this is actually a segment EC
+            #     print("{}\t{}".format(seg_id, str(2)), flush = True)
+            #     continue
 
             ### NEW FROM 07/2023 FILTERS OUT PDB IDS THAT DO NOT MEET CRITERION: @experimental_methods AND @resolution
 
@@ -1611,24 +1615,25 @@ if __name__ == '__main__': ### command to run form command line: python3.6 frags
                     print("{}\t{}".format(seg_id, str(4)), flush = True)
                     continue
 
-                files2remove, ids2remove = [[], []] # now because of exp method and resolution
+                #files2remove, ids2remove = [[], []] # now because of exp method and resolution
+                ids2remove = [] # now because of exp method and resolution
                 for i, pdb_id in enumerate(pdb_ids):
                     if pdb_id not in good_pdbs:
                         log.warning("{} did not meet quality standards".format(pdb_id))
-                        files2remove.append(cif_files[i]) # saving pdbs not meeting QC so they are removed later. removing whilst for loop is not a good idea
+                        #files2remove.append(cif_files[i]) # saving pdbs not meeting QC so they are removed later. removing whilst for loop is not a good idea
                         ids2remove.append(pdb_id)
 
                 pdb_ids = [pdb_id for pdb_id in pdb_ids if pdb_id not in ids2remove] # now only desired experimental method and resolution are kept
-                cif_files = [cif_file for cif_file in cif_files if cif_file not in files2remove] # now only desired experimental method and resolution are kept
+                #cif_files = [cif_file for cif_file in cif_files if cif_file not in files2remove] # now only desired experimental method and resolution are kept
 
-            log.info("Segment {} of {} presents {} high quality chains".format(str(segment), acc, str(len(cif_files))))
+            log.info("Segment {} of {} presents {} high quality chains".format(str(segment), acc, str(len(pdb_ids))))
             
             ### CHECKING AMOUNT OF PDB FILES AND PDB IDS ARE THE SAME
 
-            try:
-                assert len(pdb_ids) == len(cif_files)
-            except AssertionError as e:
-                log.critical("Number of pdb ids ({}) not equal to CIF files ({}) for Segment {} of {}".format(str(len(pdb_ids)), str(len(cif_files)), str(segment), acc))
+            # try:
+            #     assert len(pdb_ids) == len(cif_files)
+            # except AssertionError as e:
+            #     log.critical("Number of pdb ids ({}) not equal to CIF files ({}) for Segment {} of {}".format(str(len(pdb_ids)), str(len(cif_files)), str(segment), acc))
 
             segment_df = segment_df.query('pdb_id in @pdb_ids') # filtering segment dataframe, so it only includes transformation data of those tructures present in local copy of PDB
             matrices = segment_df.matrix.tolist()
@@ -1642,33 +1647,36 @@ if __name__ == '__main__': ### command to run form command line: python3.6 frags
                 log.critical("Filtered PDBs do not agree with those from Segment dataframe for Segment {} of {}".format(str(segment), acc))
                 continue
 
-            try:
-                assert segment_df.pdb_id.tolist() == [cif_file.split("/")[-1][:4] for cif_file in cif_files]
-                # assert segment_df.pdb_id.tolist() == [pdb_file.split("/")[-1][3:7] for pdb_file in pdb_files]
-            except AssertionError as e:
-                log.critical("PDB file IDs do not agree with those from Segment dataframe for Segment {} of {}".format(str(segment), acc))
-                continue 
+            # try:
+            #     assert segment_df.pdb_id.tolist() == [cif_file.split("/")[-1][:4] for cif_file in cif_files]
+            #     # assert segment_df.pdb_id.tolist() == [pdb_file.split("/")[-1][3:7] for pdb_file in pdb_files]
+            # except AssertionError as e:
+            #     log.critical("PDB file IDs do not agree with those from Segment dataframe for Segment {} of {}".format(str(segment), acc))
+            #     continue 
 
             ### OBTAINING PROTEIN-LIGAND FINGERPRINTS
 
             fps_out = os.path.join(results_dir, "{}_{}_{}_{}_ligs_fingerprints.pkl".format(acc, str(segment), experimental_methods, str(resolution))) #fps: will stand for fingerprints. update with main_dir and so on.
-            pdb_set = segment_df.pdb_id.unique().tolist()
+            #pdb_set = segment_df.pdb_id.unique().tolist()
             log.info("There are {} unique PDBs for Segment {} of {}".format(str(len(pdb_set)), str(segment), acc))
-            all_ligs_pdbs_segment = [pdb for pdb in all_ligs_pdbs if pdb in pdb_set] # filtering pdbs so only data about segment is retrieved. Think it is unnecessary, but OK.
-            try:
-                assert set(pdb_set) == set(all_ligs_pdbs_segment)
-                #log.info("ASSERTION CORRECT: PDBs in segment had already been filtered by BioLiP")
-            except AssertionError as e:
-                log.critical("PDB IDs do not match for Segment {} of {}".format(str(segment), acc))
-                continue 
+            #all_ligs_pdbs_segment = [pdb for pdb in all_ligs_pdbs if pdb in pdb_set] # filtering pdbs so only data about segment is retrieved. Think it is unnecessary, but OK.
+            #try:
+            #    assert set(pdb_set) == set(all_ligs_pdbs_segment)
+            #    #log.info("ASSERTION CORRECT: PDBs in segment had already been filtered by BioLiP")
+            #except AssertionError as e:
+            #    log.critical("PDB IDs do not match for Segment {} of {}".format(str(segment), acc))
+            #    continue 
 
-            log.info("There are {} unique ligand-binding PDBs for Segment {} of {}".format(str(len(all_ligs_pdbs_segment)), str(segment), acc))
-
-
-            ######################### NEW FROM 22/01/2024 RESTRUCTURE: USING ARPEGGIO #########################
+            #log.info("There are {} unique ligand-binding PDBs for Segment {} of {}".format(str(len(all_ligs_pdbs_segment)), str(segment), acc))
 
 
             ######################### NEW FROM 22/01/2024 RESTRUCTURE: USING ARPEGGIO #########################
+
+            download_and_move_files(pdb_ids, ASSEMBLY_FOLDER, bio = True) # fetching assembly from API using ProIntVar
+
+            ligs_dict = get_loi_data_from_assembly(ASSEMBLY_FOLDER, biolip_dict, acc)
+
+            download_and_move_files(pdb_ids, ASYM_FOLDER) # fetching updated CIF from API using ProIntVar
 
             if override or not os.path.isfile(fps_out):
                 if all_ligs_pdbs_segment == []:
@@ -1676,10 +1684,25 @@ if __name__ == '__main__': ### command to run form command line: python3.6 frags
                     log.warning("Segment {} of {} does not present any ligand-binding structures".format(str(segment), acc))
                     continue
                 else:
-                    lig_fps = get_fingerprints_dict(acc, fps_dir, fps_out, all_ligs_pdbs_segment, segment_chains[segment], MOLS_FOLDER, INTERS_FOLDER) # GETS ALL LIGAND FINGERPRINTS FROM LIG-BOUND CONTAINING PDBS
+                    lig_fps = get_arpeggio_fingerprints(pdb_ids, ASSEMBLY_FOLDER, ASYM_FOLDER, arpeggio_dir, CHAIN_REMAPPING_FOLDER, CIF_SIFTS_FOLDER, ligs_dict) ### TODO IF WANTED: IMPLEMENT ONLY-SIDECHAIN INTERACTIONS ###
+                    #lig_fps = get_fingerprints_dict(acc, fps_dir, fps_out, all_ligs_pdbs_segment, segment_chains[segment], MOLS_FOLDER, INTERS_FOLDER) # GETS ALL LIGAND FINGERPRINTS FROM LIG-BOUND CONTAINING PDBS
             else:
                 with open(fps_out, "rb") as f:
                     lig_fps = pickle.load(f) # stands for ligand fingerprints
+
+
+            ######################### NEW FROM 22/01/2024 RESTRUCTURE: USING ARPEGGIO #########################
+
+            # if override or not os.path.isfile(fps_out):
+            #     if all_ligs_pdbs_segment == []:
+            #         print("{}\t{}".format(seg_id, str(5)), flush = True)
+            #         log.warning("Segment {} of {} does not present any ligand-binding structures".format(str(segment), acc))
+            #         continue
+            #     else:
+            #         lig_fps = get_fingerprints_dict(acc, fps_dir, fps_out, all_ligs_pdbs_segment, segment_chains[segment], MOLS_FOLDER, INTERS_FOLDER) # GETS ALL LIGAND FINGERPRINTS FROM LIG-BOUND CONTAINING PDBS
+            # else:
+            #     with open(fps_out, "rb") as f:
+            #         lig_fps = pickle.load(f) # stands for ligand fingerprints
 
             ### CHECKING THAT THERE ARE FINGERPRINTS. THERE SHOULD ALWAYS BE AT THIS POINT.
 
@@ -1699,71 +1722,66 @@ if __name__ == '__main__': ### command to run form command line: python3.6 frags
 
             ### FILTER OUT NON-LOIS 
 
-            lig_fps_filt1 = filter_non_relevant_ligs(lig_fps, biolip_dict[acc]) # FILTERS OUT NON-LOIs INTERACTIONS. THIS IS WHERE WE WOULD CHECK FOR LIGAND SIZE AS WELL.
+            # lig_fps_filt1 = filter_non_relevant_ligs(lig_fps, biolip_dict[acc]) # FILTERS OUT NON-LOIs INTERACTIONS. THIS IS WHERE WE WOULD CHECK FOR LIGAND SIZE AS WELL.
 
-            n_relevant_ligs = sum([len(rel_ligs) for rel_ligs in lig_fps_filt1.values()])
+            # n_relevant_ligs = sum([len(rel_ligs) for rel_ligs in lig_fps_filt1.values()])
 
-            if n_relevant_ligs == 0: #there are ligands bound, but they are all non-relevant, across all ligands bound in all structures for a segment
-                print("{}\t{}".format(seg_id, str(8)), flush = True)
-                log.warning("All ligands in Segment {} of {} are not relevant".format(str(segment), acc))
-                continue
+            # if n_relevant_ligs == 0: #there are ligands bound, but they are all non-relevant, across all ligands bound in all structures for a segment
+            #     print("{}\t{}".format(seg_id, str(8)), flush = True)
+            #     log.warning("All ligands in Segment {} of {} are not relevant".format(str(segment), acc))
+            #     continue
 
             ### FILTER OUT NON-PROTEIN INTERACTIONS
 
-            lig_fps_filt2 = filter_non_protein_inters(lig_fps_filt1, acc, pdb_resnames) # FILTERS OUT NON-PROTEIN INTERACTIONS
+            # lig_fps_filt2 = filter_non_protein_inters(lig_fps_filt1, acc, pdb_resnames) # FILTERS OUT NON-PROTEIN INTERACTIONS
 
-            n_protein_inters = sum([len(inters) for rel_ligs in lig_fps_filt2.values() for inters in rel_ligs.values()]) # number of protein-RELEVANT ligands interactions for all structures in a segment
+            # n_protein_inters = sum([len(inters) for rel_ligs in lig_fps_filt2.values() for inters in rel_ligs.values()]) # number of protein-RELEVANT ligands interactions for all structures in a segment
 
-            if n_protein_inters == 0: #there are ligands bound, but they are all non-relevant, across all ligands bound in all structures for a segment
-                print("{}\t{}".format(seg_id, str(9)), flush = True)
-                log.warning("None of the ligand interactions in Segment {} of {} involve target protein atoms".format(str(segment), acc))
-                continue
-
-            ### TODO: IMPLEMENT ONLY-SIDECHAIN INTERACTIONS ###
-            ###                                             ###
-            ###                                             ###
-            ### TODO: IMPLEMENT ONLY-SIDECHAIN INTERACTIONS ###
+            # if n_protein_inters == 0: #there are ligands bound, but they are all non-relevant, across all ligands bound in all structures for a segment
+            #     print("{}\t{}".format(seg_id, str(9)), flush = True)
+            #     log.warning("None of the ligand interactions in Segment {} of {} involve target protein atoms".format(str(segment), acc))
+            #     continue
 
             log.info("Ligand fingerprints obtained for Segment {} of {}".format(str(segment), acc))
 
             ### GETTING PDB-UNIPROT SIFTS MAPPING
 
-            sifts_out = os.path.join(results_dir, "{}_{}_{}_{}_strs_sifts.pkl".format(acc, str(segment), experimental_methods, str(resolution)))
+            # sifts_out = os.path.join(results_dir, "{}_{}_{}_{}_strs_sifts.pkl".format(acc, str(segment), experimental_methods, str(resolution)))
 
-            if override or not os.path.isfile(sifts_out):
-                sifts_mapping = {}
-                for pdb_id in all_ligs_pdbs_segment: # before it was just pdb_ids, so no information would be retrieved of those with no structure in local PDB copy
-                    sifts_mapping[pdb_id] = get_mapping_from_sifts(pdb_id)
-                with open(sifts_out, "wb") as f:
-                    pickle.dump(sifts_mapping, f)
-                log.info("Obtained SIFTS mappings table")
-            else:
-                with open(sifts_out, "rb") as f:
-                    sifts_mapping = pickle.load(f)
-                log.info("Loaded SIFTS mappings table")
+            # if override or not os.path.isfile(sifts_out):
+            #     sifts_mapping = {}
+            #     for pdb_id in all_ligs_pdbs_segment: # before it was just pdb_ids, so no information would be retrieved of those with no structure in local PDB copy
+            #         sifts_mapping[pdb_id] = get_mapping_from_sifts(pdb_id)
+            #     with open(sifts_out, "wb") as f:
+            #         pickle.dump(sifts_mapping, f)
+            #     log.info("Obtained SIFTS mappings table")
+            # else:
+            #     with open(sifts_out, "rb") as f:
+            #         sifts_mapping = pickle.load(f)
+            #     log.info("Loaded SIFTS mappings table")
 
-            lig_fps_filt2 = {k: v for k, v in lig_fps_filt2.items() if sifts_mapping[k] != {}} #filter out those fingerprints form structures where SIFTS mapping was not retrieved
+            # lig_fps_filt2 = {k: v for k, v in lig_fps_filt2.items() if sifts_mapping[k] != {}} #filter out those fingerprints form structures where SIFTS mapping was not retrieved
 
-            lig_fps_filt2_sifted, lig_fps_filt2_sifted_v2 = get_up_mapping_from_prointvar(lig_fps_filt2, sifts_mapping)
+            # lig_fps_filt2_sifted, lig_fps_filt2_sifted_v2 = get_up_mapping_from_prointvar(lig_fps_filt2, sifts_mapping)
 
-            ### FILTERING OUT FINGERPRINTS THAT ARE EMPTY DUE TO LACK OF SIFTS MAPPING ###
+            # ### FILTERING OUT FINGERPRINTS THAT ARE EMPTY DUE TO LACK OF SIFTS MAPPING ###
 
-            for k1, v1 in lig_fps_filt2_sifted_v2.items():
-                if v1 == []:
-                    log.warning("{} resulted in an empty fingerprint".format(k1))
-                else:
-                    pass
-            lig_fps_filt2_sifted_v2 = {k: v for k, v in lig_fps_filt2_sifted_v2.items() if v != []} # removes empty fingerprints from dict
+            # for k1, v1 in lig_fps_filt2_sifted_v2.items():
+            #     if v1 == []:
+            #         log.warning("{} resulted in an empty fingerprint".format(k1))
+            #     else:
+            #         pass
+            # lig_fps_filt2_sifted_v2 = {k: v for k, v in lig_fps_filt2_sifted_v2.items() if v != []} # removes empty fingerprints from dict
 
-            lig_fps_filt2_sifted = {k1: {k2: v2 for k2, v2 in v1.items() if v2 != []} for k1, v1 in lig_fps_filt2_sifted.items()} # removes empty fingerprints from dict
-            lig_fps_filt2_sifted = {k: v for k, v in lig_fps_filt2_sifted.items() if v != {}} # removes pdb entries from dict if no fingerprints remain in dict
+            # lig_fps_filt2_sifted = {k1: {k2: v2 for k2, v2 in v1.items() if v2 != []} for k1, v1 in lig_fps_filt2_sifted.items()} # removes empty fingerprints from dict
+            # lig_fps_filt2_sifted = {k: v for k, v in lig_fps_filt2_sifted.items() if v != {}} # removes pdb entries from dict if no fingerprints remain in dict
             
             # it could be that none of the fingerprints have SIFTS mappings, and therefore dictionaries are empty
 
-            if lig_fps_filt2_sifted == {}:
-                print("{}\t{}".format(seg_id, str(10)), flush = True)
-                log.warning("No relevant fingerprints present SIFTS mapping for Segment {} of {}".format(str(segment), acc))
-                continue
+            # if lig_fps_filt2_sifted == {}:
+            #     print("{}\t{}".format(seg_id, str(10)), flush = True)
+            #     log.warning("No relevant fingerprints present SIFTS mapping for Segment {} of {}".format(str(segment), acc))
+            #     continue
 
             ### DONE ###
 
@@ -1774,6 +1792,8 @@ if __name__ == '__main__': ### command to run form command line: python3.6 frags
             ### TODO ###
 
             ### CLUSTERING LIGANDS INTO BINDING SITES
+
+            lig_fps_filt2_sifted = lig_fps # skipping all filtering as done internally. IT SHOULD WORK FROM HERE ON, once edited the functions to accommodate for key differences in dictionaroes
 
             lig_sifted_inters = get_inters(lig_fps_filt2_sifted)
             lig_sifted_inters = [sorted(list(set(i))) for i in lig_sifted_inters] # making sure each residue is present only once (O00214 problematic with saccharides)
@@ -2165,4 +2185,3 @@ if __name__ == '__main__': ### command to run form command line: python3.6 frags
 # /cluster/gjb_lab/2394007/LIGYSIS_PDB
 
 # python3.6 ./../../ligysis.py --transform --experimental --variants --override O55234
-
