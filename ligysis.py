@@ -239,7 +239,7 @@ def get_segments_dict(supp_data, acc):
         for cluster in clusters:
             for member in cluster:
                 pdb_id = member["pdb_id"]
-                chain_id = member["auth_asym_id"]
+                chain_id = member["struct_asym_id"] # this correspobds to the original label_asym_id of the CIF file
                 unit_id = "{}_{}".format(pdb_id, chain_id)
                 segment_dict[idx][unit_id] = member
     return segment_dict
@@ -257,7 +257,7 @@ def get_segment_membership(supp_data, acc):
         for cluster in clusters:
             for member in cluster:
                 pdb_id = member["pdb_id"]
-                chain_id = member["auth_asym_id"]
+                chain_id = member["struct_asym_id"]  # this correspobds to the original label_asym_id of the CIF file
                 unit_id = "{}_{}".format(pdb_id, chain_id)
                 segment_membership[idx].append(unit_id)
     return segment_membership
@@ -272,15 +272,35 @@ def parse_pdb_file(pdb_path, fmt):
     elif fmt == "cif":
         parser = PDB.MMCIFParser()
         
-    strct_name = os.path.basename(pdb_path).split(".")[0][3:]
-    structure = parser.get_structure(strct_name, pdb_path)
+    pdb_id, _ = os.path.splitext(os.path.basename(pdb_path))
+    #print(pdb_path, pdb_id)
+    structure = parser.get_structure(pdb_id, pdb_path)
     return structure
+
+from Bio.PDB import Select
+class NotDisordered(Select):
+    def accept_atom(self, atom):
+        return not atom.is_disordered() or atom.get_altloc() == "A"
+
+class HighestOccupancy(Select):
+    # def __init__(self):
+    #     self.selected_atoms = {}
+
+    def accept_atom(self, atom):
+
+        if atom.get_occupancy() >= 0.5:
+            return True
+        else:
+            return False
 
 def apply_transformation(structure, matrix, output_path, chain_id, fmt):
     """
     Transforms structure based on the transformation matrix
     :param structure: biopython's structure object
     :param matrix: transformation matrix dict
+    :param output_path: path to the output file
+    :param chain_id: chain ID to transform (By default it is AUTH_ASYM_ID)
+    :param fmt: structure format
     :return: transformed structure
     """
     rotation = matrix["rotation"]
@@ -296,10 +316,40 @@ def apply_transformation(structure, matrix, output_path, chain_id, fmt):
             if chain.id == chain_id:
                 for residue in chain:
                     for atom in residue:
+                        # print(atom.get_altloc(), atom.get_occupancy())
                         atom.transform(rotation, translation)
+
+    # for model in structure:
+    #     for chain in model:
+    #         if chain.id == chain_id:
+    #             for residue in chain:
+    #                 altloc_atoms = {}  # Track atoms with altlocs
+
+    #                 # First pass: Find highest occupancy for each altloc position
+    #                 for atom in residue.get_unpacked_list():
+
+    #                     atom_id = (atom.get_parent().get_id(), atom.get_name())
+    #                     altloc = atom.get_altloc()
+
+    #                     if altloc not in (' ', 'A'):  # Consider only altloc atoms
+    #                         if atom_id not in altloc_atoms or atom.get_occupancy() > altloc_atoms[atom_id][1]:
+    #                             altloc_atoms[atom_id] = (atom, atom.get_occupancy())
+
+    #                 # Second pass: Remove lower occupancy altlocs
+    #                 for atom in residue.get_unpacked_list():
+    #                     atom_id = (atom.get_parent().get_id(), atom.get_name())
+    #                     altloc = atom.get_altloc()
+
+    #                     if altloc not in (' ', 'A') and (atom_id not in altloc_atoms or atom is not altloc_atoms[atom_id][0]):
+    #                         residue.detach_child(atom.get_id())
+
+    #                 # Apply transformation to the remaining atoms
+    #                 for atom in residue:
+    #                     atom.transform(rotation, translation)
+
     
                 io.set_structure(chain)
-                io.save(output_path)
+                io.save(output_path, select=HighestOccupancy())
 
 def pdb_transform(pdb_path, output_path, matrix_raw, chain_id, fmt = struc_fmt):
     """
@@ -312,11 +362,11 @@ def pdb_transform(pdb_path, output_path, matrix_raw, chain_id, fmt = struc_fmt):
     
     structure = parse_pdb_file(pdb_path, fmt)
 
-    structure = apply_transformation(structure, matrix_rf, output_path, chain_id, fmt)
+    apply_transformation(structure, matrix_rf, output_path, chain_id, fmt) # by default has to be AUTH_ASYM_ID
 
-def transform_all_files(pdb_files, matrices, chains, raw_dir, clean_dir, trans_dir):
+def transform_all_files(cif_files, matrices, chains, raw_dir, clean_dir, trans_dir):
     """
-    Given a set of pdb files, matrices, and chains, uncompresses, cleans and transforms
+    Given a set of CIF files, matrices, and chains, uncompresses, cleans and transforms
     the coordinates according to a transformation matrix
     """
     for i, pdb_in in enumerate(pdb_files):
@@ -1141,7 +1191,7 @@ def get_chimera_data(cluster_id_dict):
     chimera_atom_specs, bs_ids, pdb_paths = [[], [], []]
     for k, v in cluster_id_dict.items():
         ld = k.split("_") # stands for lig data
-        pdb_id, lig_resname, lig_resnum, lig_chain_id = [ld[0], ld[1], ld[2], ld[3]] # not sure why sometimes chain ID is A_1, and sometimes just A. Q9UKK9, 5qjj.
+        pdb_id, lig_resname, lig_chain_id, lig_resnum  = [ld[0], ld[1], ld[2], ld[3]] # not sure why sometimes chain ID is A_1, and sometimes just A. Q9UKK9, 5qjj.
             
         bs_id = str(v)
         pdb_path = "{}_{}_trans.pdb".format(pdb_id, lig_chain_id)
@@ -1863,6 +1913,7 @@ if __name__ == '__main__': ### command to run form command line: python3.6 frags
 
             log.info("Starting to process Segment {} of {}".format(str(segment), acc))
 
+            matrices_df.index = matrices_df.pdb_id + "_" + matrices_df.struct_asym_id # changing index of rows so they represent struct_asym_id which is euvialent to orig_label_asym_id
             segment_df = matrices_df.query('index in @segment_chains[@segment]') # subsets matrices_df to select segment rows
 
             if len(segment_df) == 0: # happened for 8au0 of O94901. Brand new of 19/07/2023.
@@ -1881,7 +1932,7 @@ if __name__ == '__main__': ### command to run form command line: python3.6 frags
                 log.warning("Segment {} of {} does not present any ligand-binding structures".format(str(segment), acc))
                 continue
 
-            pdb_files = [os.path.join(pdb_db_path, pdb_id[1:3], "pdb{}.ent.gz".format(pdb_id)) for pdb_id in pdb_ids] ### 2REMOVE (MOVING AWAY) used for superposition
+            #pdb_files = [os.path.join(pdb_db_path, pdb_id[1:3], "pdb{}.ent.gz".format(pdb_id)) for pdb_id in pdb_ids] ### 2REMOVE (MOVING AWAY) used for superposition
 
             #cif_files = [os.path.join(cif_assembly_db_path, pdb_id[1:3], "{}-assembly1.cif.gz".format(pdb_id)) for pdb_id in pdb_ids] # used to run Arpeggio. Assuming 1 is the preferred (Not always true)
 
@@ -1972,7 +2023,7 @@ if __name__ == '__main__': ### command to run form command line: python3.6 frags
 
             segment_df = segment_df.query('pdb_id in @pdb_ids') # filtering segment dataframe, so it only includes transformation data of those tructures present in local copy of PDB
             matrices = segment_df.matrix.tolist()
-            chains = segment_df.auth_asym_id.tolist()
+            chains = segment_df.struct_asym_id.tolist() # this is the same as orig_label_asym_id
 
             ### CHECKING PDB IDS AGREE WITH SEGMENT DF PDB IDS
 
@@ -2011,7 +2062,7 @@ if __name__ == '__main__': ### command to run form command line: python3.6 frags
 
             ligs_dict = get_loi_data_from_assembly(ASSEMBLY_FOLDER, biolip_dict, acc)
 
-            download_and_move_files(pdb_ids, ASYM_FOLDER) # fetching updated CIF from API using ProIntVar
+            download_and_move_files(pdb_ids, ASYM_FOLDER) # fetching updated CIF from API using ProIntVar. These are actually the ones we want for superposition, so all good.
 
             if override or not os.path.isfile(fps_out):
                 # if all_ligs_pdbs_segment == []:
@@ -2168,7 +2219,9 @@ if __name__ == '__main__': ### command to run form command line: python3.6 frags
 
             ### TRANSFORMATION OF PROTEIN-LIGAND INTERACTIONS CONTAINING PDBs
 
-            transform_all_files(pdb_files, matrices, chains, raw_dir, clean_dir, trans_dir) # I think we lose all ligands here that are on independent chains. This is because they don't have a matrix (no backbone)
+            asym_cif_files = [os.path.join(ASYM_FOLDER, "{}.cif") for pdb_id in pdb_ids] # using asymmetric unit just for superposition
+
+            transform_all_files(asym_cif_files, matrices, chains, raw_dir, clean_dir, trans_dir) # I think we lose all ligands here that are on independent chains. This is because they don't have a matrix (no backbone)
 
             log.info("Structures cleaned and transformed for Segment {} of {}".format(str(segment), acc))
 
@@ -2180,11 +2233,15 @@ if __name__ == '__main__': ### command to run form command line: python3.6 frags
 
             ### CHIMERA COLOURING SCRIPT AND ATTRIBUTE WRITING
 
+            print(cluster_id_dict)
+
             chimera_atom_specs = get_chimera_data(cluster_id_dict)
 
             attr_out = os.path.join(results_dir, "{}_{}_{}_{}_{}_{}.attr".format(acc, str(segment), experimental_methods, str(resolution), lig_clust_method, lig_clust_dist))
             
             if override or not os.path.isfile(attr_out):
+
+                print(cluster_ids, chimera_atom_specs)
                 
                 write_chimera_attr(attr_out, chimera_atom_specs, cluster_ids)
 
@@ -2302,8 +2359,6 @@ if __name__ == '__main__': ### command to run form command line: python3.6 frags
 
             ### GENERATE ALIGNMENT                                                 
 
-            #if run_variants:
-
             seq_out = os.path.join(variants_dir, "{}_{}.fasta".format(acc, str(segment)))
 
             if override_variants or not os.path.isfile(seq_out):
@@ -2355,7 +2410,6 @@ if __name__ == '__main__': ### command to run form command line: python3.6 frags
                 log.debug("Loaded conservation data")
             
             shenkin_filt_out = os.path.join(variants_dir, "{}_{}_rf_shenkin_filt.pkl".format(acc, str(segment)))
-            #print(prot_cols)
             if override_variants or not os.path.isfile(shenkin_filt_out):
                 shenkin_filt = format_shenkin(shenkin, prot_cols, shenkin_filt_out)
                 log.info("Filtered conservation data")
@@ -2406,7 +2460,6 @@ if __name__ == '__main__': ### command to run form command line: python3.6 frags
 
                 variant_table_path = os.path.join(variants_dir, "{}_{}_rf_human_variants.p.gz".format(acc, str(segment)))
                 if override_variants or not os.path.isfile(variant_table_path):
-                    #vcf_out_path = os.path.join(main_dir , "results", "{}_alignment_variants.vcf".format(seg_id))
                     try:
                         variants_table = varalign.align_variants.align_variants(aln_info_human, path_to_vcf = gnomad_vcf,  include_other_info = False, write_vcf_out = False)     
                     except ValueError as e:
