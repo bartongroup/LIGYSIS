@@ -30,6 +30,6 @@ ASYM_FOLDER = os.path.join(STRUCTURE_FOLDER, "asymmetric")
 
 ASSEMBLY_FOLDER = os.path.join(STRUCTURE_FOLDER, "assembly")
 
-CHAIN_REMAPPING_FOLDER = os.path.join(STRUCTURE_FOLDER, "chain_remapping")
+CHAIN_REMAPPING_FOLDER = os.path.join(DATA_FOLDER, "chain_remapping")
 
-CIF_SIFTS_FOLDER = os.path.join(STRUCTURE_FOLDER, "cif_sifts")
+CIF_SIFTS_FOLDER = os.path.join(DATA_FOLDER, "cif_sifts")

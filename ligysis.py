@@ -19,6 +19,8 @@ import configparser
 from Bio import PDB
 from Bio import AlignIO
 import scipy.stats as stats
+from Bio.PDB import MMCIFParser
+from Bio.PDB.MMCIF2Dict import MMCIF2Dict
 
 from prointvar.pdbx import PDBXreader, PDBXwriter
 from prointvar.sifts import SIFTSreader
@@ -32,7 +34,7 @@ import varalign.alignments
 from urllib.error import HTTPError
 from urllib.error import URLError
 
-from config import BASE_DIR, OUTPUT_FOLDER, MOLS_FOLDER, INTERS_FOLDER, EXP_FOLDER, MATS_FOLDER, SEGMENT_FOLDER
+from config import BASE_DIR, OUTPUT_FOLDER, MOLS_FOLDER, INTERS_FOLDER, EXP_FOLDER, MATS_FOLDER, SEGMENT_FOLDER, STRUCTURE_FOLDER, ASYM_FOLDER, ASSEMBLY_FOLDER, CHAIN_REMAPPING_FOLDER, CIF_SIFTS_FOLDER
 
 ### SETTING UP LOGGER
 
@@ -111,6 +113,29 @@ dssp_cols = [
 consvar_class_colours = [
     "royalblue", "green", "grey", "firebrick", "orange"
 ]
+
+i_cols = [
+    "pdbx_sifts_xref_db_acc",
+    "label_asym_id",
+    "auth_seq_id",
+    "pdbx_sifts_xref_db_num"
+]
+
+interaction_to_color = { # following Arpeggio's colour scheme
+    'polar': '#f04646',
+    'Hbonds': '#f04646',
+    'weak_polar': '#fc7600',
+    'weak_hbond': '#fc7600',
+    'halogen': '#3977db',
+    'ionic': '#e3e159',
+    'metal_complex': '#800080',
+    'aromatic': '#00ccff',
+    'hydrophobic': '#006633',
+    'carbonyl': '#ff007f',
+    'vdw': '#999999',
+    'vdw_clash': '#999999',
+    'proximal': '#999999'
+}
 
 ### FUNCTIONS
 
@@ -411,13 +436,331 @@ def intersection_rel(l1, l2):
     I = len(list(set(l1).intersection(l2)))
     return I/I_max
 
-def jaccard_sim(l1, l2):
+## NEW FINGERPRINTS SECTION
+
+def download_and_move_files(pdb_ids, asymmetric_dir, bio = False):
     """
-    Calculates Jaccard Similiarity index.
+    Downloads CIF of a series of PDB IDs and moves
+    them to a given directory.
     """
-    I = len(list(set(l1).intersection(l2)))
-    U = (len(set(l1)) + len(set(l2))) - I
-    return float(I) / U
+    for pdb_id in pdb_ids:
+        if bio:
+            cif_in = os.path.join(cfg.db_root, cfg.db_pdbx, "{}_bio.cif".format(pdb_id))
+            cif_out = os.path.join(asymmetric_dir, "{}_bio.cif".format(pdb_id))
+        else:
+            cif_in = os.path.join(cfg.db_root, cfg.db_pdbx, "{}.cif".format(pdb_id))
+            cif_out = os.path.join(asymmetric_dir, "{}.cif".format(pdb_id))
+        if os.path.isfile(cif_out):
+            log.debug("{} already exists!".format(cif_out))
+            continue
+        else:
+            download_structure_from_pdbe(pdb_id, bio = bio)
+            shutil.move(cif_in, cif_out)
+
+def get_SIFTS_from_CIF(cif_df, pdb_id):
+    """
+    Generates PDB2UP and UP2PDB SIFTS mapping
+    dictionaries given a dataframe and a PDB ID.
+    """
+    df_chains = sorted(cif_df.label_asym_id.unique().tolist())
+    pdb2up = {pdb_id: {}}
+    up2pdb = {pdb_id: {}}
+    for chain in df_chains:
+        df_chain = cif_df.query('label_asym_id == @chain & group_PDB == "ATOM"').copy()
+        if df_chain.empty:
+            log.warning("No atoms in chain {} of {}".format(chain, pdb_id))
+        else:
+            df_filt = df_chain[i_cols].drop_duplicates()
+            df_filt = df_filt.query('pdbx_sifts_xref_db_num != "?"').copy()
+            df_filt.auth_seq_id = df_filt.auth_seq_id.astype(int)
+            df_filt.pdbx_sifts_xref_db_num = df_filt.pdbx_sifts_xref_db_num.astype(int)
+
+            pdb2up[pdb_id][chain] = df_filt.set_index('auth_seq_id')['pdbx_sifts_xref_db_num'].to_dict()
+
+            up2pdb[pdb_id][chain] = df_filt.set_index('pdbx_sifts_xref_db_num')['auth_seq_id'].to_dict()
+            
+            chain2acc_rows = df_filt.drop_duplicates(["label_asym_id", "pdbx_sifts_xref_db_acc"])
+            
+            chain2acc = dict(zip(chain2acc_rows['label_asym_id'], chain2acc_rows['pdbx_sifts_xref_db_acc'])) # dict from orig_label_asym_id to UniProt accession
+            
+    return pdb2up, up2pdb, chain2acc
+
+def get_loi_data_from_assembly(cif_dir, biolip_dict, acc):
+    """
+    Returns LOI name, chain ID, and ResNum of all LOI
+    molecules for a given list of CIF files and a biolip
+    dict.
+    """
+    ligs_dict = {}
+    for cif_name in os.listdir(cif_dir):
+        if cif_name.endswith(".cif"):
+            cif_in = os.path.join(cif_dir, cif_name)
+            cif_id = cif_name.split("_")[0]
+            ligs_dict[cif_id] = {}
+            lig_names = biolip_dict[acc][cif_id]
+            cif_df = PDBXreader(inputfile = cif_in).atoms(format_type = "mmcif", excluded=())
+            for lig in lig_names:
+                cif_df.auth_seq_id = cif_df.auth_seq_id.astype(int)
+                lig_rows = cif_df.query('label_comp_id == @lig').copy().drop_duplicates(["auth_comp_id", "auth_asym_id","auth_seq_id"])
+                lig_data = list(lig_rows[["auth_comp_id","auth_asym_id","auth_seq_id"]].itertuples(index=False, name=None))
+                ligs_dict[cif_id] = lig_data
+    return ligs_dict
+
+def extract_assembly_metadata(assembly_path, section_name):
+    """
+    Extracts assembly metadata, written specifically for
+    chain remapping from asymmetric unit to biological
+    assembly, so SIFTS mapping can be extrapolated from
+    asymmetric unit to preferred assembly.
+    """
+    # Flag to indicate if we are in the relevant section
+    in_section = False
+    
+    # List to hold the extracted data
+    data = []
+    
+    columns = []
+    
+    # Open the file and read line by line
+    with open(assembly_path, 'r') as file:
+        for line in file:
+            # Check if we've reached the relevant section
+            if line.startswith(section_name):
+                in_section = True
+                columns.append(line.strip().split(".")[-1])
+                continue
+            
+            # Check if we've reached the end of the section
+            if line.startswith("#") and in_section:
+                break
+            
+            # Extract data if in the relevant section
+            if in_section and not line.startswith(section_name):
+        
+                data.append(line.strip().split())
+                    
+    df = pd.DataFrame(data, columns=columns)
+    
+    return df
+
+def run_arpeggio(pdb_path, lig_sel, out_dir):
+    """
+    runs Arpeggio
+    """
+    args = [
+        arpeggio_python_bin, arpeggio_bin, pdb_path,
+        "-s", lig_sel, "-o", out_dir
+    ]
+    exit_code = os.system(" ".join(args))
+    if exit_code != 0:
+        print(" ".join(args))
+    return exit_code
+
+def switch_columns(df, names):
+    # Columns to switch
+    columns_to_switch = [
+        'auth_asym_id', 'auth_atom_id', 'auth_seq_id', 'label_comp_id'
+    ]
+
+    # Iterate through the DataFrame and switch columns where necessary
+    for index, row in df.iterrows():
+        if row['label_comp_id_end'] in names:
+            for col in columns_to_switch:
+                bgn_col = f"{col}_bgn"
+                end_col = f"{col}_end"
+                df.at[index, bgn_col], df.at[index, end_col] = df.at[index, end_col], df.at[index, bgn_col]
+
+    return df
+
+# Define the mapping function
+def map_values(row, pdb2up, pdb_id):
+    """
+    maps UniProt ResNums from SIFTS dictionary from CIF file to Arpeggio dataframe.
+    """
+    return pdb2up[pdb_id][row['orig_label_asym_id_end']][row['auth_seq_id_end']]
+
+def map_values_dssp(row, pdb2up, pdb_id, remap_dict):
+    """
+    maps UniProt ResNums from SIFTS dictionary from CIF file to Arpeggio dataframe.
+    """
+    #print(pdb_id, remap_dict[row['THE_CHAIN']], row['PDB_ResNum'])
+    try:
+        return pdb2up[pdb_id][remap_dict[row['THE_CHAIN']]][row['PDB_ResNum']]
+    except:
+        return np.nan
+
+def process_arpeggio_df(arp_df, ligs_dict, pdb_id, ligand_names, chain_remap_dict, pdb2up, chain2acc, acc, segment_start, segment_end):
+    """
+    Process Arpeggio Df to put in appropriate
+    format to extract fingerprings. Also filter out
+    non-relevant interactions.
+    """
+    
+    arp_df_end_expanded = arp_df['end'].apply(pd.Series)
+    arp_df_bgn_expanded = arp_df['bgn'].apply(pd.Series)
+
+    arp_df = arp_df.join(arp_df_end_expanded).drop(labels='end', axis=1)
+    arp_df = arp_df.join(arp_df_bgn_expanded, lsuffix = "_end", rsuffix = "_bgn").drop(labels='bgn', axis = 1)
+
+    inter_df = arp_df.query('interacting_entities == "INTER" & type == "atom-atom"').copy().reset_index(drop = True)
+
+    switched_df = switch_columns(inter_df, ligand_names)
+
+    # Add original label_asym_id from asymmetric unit
+    switched_df["orig_label_asym_id_end"] = switched_df.auth_asym_id_end.map(chain_remap_dict)
+
+    # Apply the function and create a new column
+    switched_df["UniProt_ResNum_end"] = switched_df.apply(lambda row: map_values(row, pdb2up, pdb_id), axis=1)
+
+    # Add original label_asym_id from asymmetric unit
+    switched_df["UniProt_acc_end"] = switched_df.orig_label_asym_id_end.map(chain2acc)
+
+    prot_acc_inters = switched_df.query('UniProt_acc_end == @acc').copy() # filtering out non-POI interactions
+
+    segment_inters = prot_acc_inters.query('@segment_start <= UniProt_ResNum_end <= @segment_end').copy() # filtering out non-segment interactions
+    
+    segment_inters = segment_inters.sort_values(by=["auth_asym_id_end", "UniProt_ResNum_end", "auth_atom_id_end"]).reset_index(drop = True)
+    
+    return segment_inters
+
+def generate_dictionary(mmcif_file):
+    """
+    Generates coordinate dictionary from a mmCIF file.
+    """
+    # Parse the mmCIF file
+    mmcif_dict = MMCIF2Dict(mmcif_file)
+
+    # Initialise the result dictionary
+    result = {}
+
+    # Iterate through the atoms and populate the dictionary
+    for i, auth_asym_id in enumerate(mmcif_dict["_atom_site.auth_asym_id"]):
+        label_comp_id_end = mmcif_dict["_atom_site.label_comp_id"][i]
+        auth_seq_id = mmcif_dict["_atom_site.auth_seq_id"][i]
+        auth_atom_id_end = mmcif_dict["_atom_site.auth_atom_id"][i]
+        x = mmcif_dict["_atom_site.Cartn_x"][i]
+        y = mmcif_dict["_atom_site.Cartn_y"][i]
+        z = mmcif_dict["_atom_site.Cartn_z"][i]
+
+        # Dictionary creation
+        result[auth_asym_id, label_comp_id_end, int(auth_seq_id), auth_atom_id_end] = [x, y, z]
+
+    return result
+
+def determine_width(interactions):
+    """
+    Generates cylinder width for 3DMol.js interaction
+    representation depending on Arpeggio contact
+    fingerprint.
+    """
+    return 0.125 if 'vdw_clash' in interactions else 0.0625
+
+def determine_color(interactions):
+    """
+    Generates cylinder colour for 3DMol.js interaction
+    representation depending on Arpeggio contact
+    fingerprint.
+    """
+    undef = ['vdw', 'vdw_clash', 'proximal']
+    if len(interactions) == 1 and interactions[0] in undef:
+        return '#999999'
+    else:
+        colors = [interaction_to_color[interaction] for interaction in interactions if interaction in interaction_to_color and interaction not in undef]
+        return colors[0] if colors else None  # Return the first color found, or None if no match
+    
+def get_arpeggio_fingerprints(pdb_ids, assembly_cif_dir, asymmetric_dir, arpeggio_dir, chain_remapping_dir, cif_sifts_dir, ligs_dict, override = False):
+    """
+    Given a series of PDB IDs, runs Arpeggion on the preferred assemblies
+    of those IDs, also gathers chain remapping data, in order to do some
+    filtering of the interactions. Saves CIF-derived SIFTS mappings, as well
+    as chain remapping dictionary, processed Arpeggio table and returns finger-
+    print dictionary.
+    """
+    fp_dict = {}
+
+    for pdb_id in pdb_ids:
+
+        assembly_path = os.path.join(assembly_cif_dir, "{}_bio.cif".format(pdb_id))
+        
+        basename = os.path.splitext(os.path.basename(assembly_path))[0]
+        
+        remapping_out = os.path.join(chain_remapping_dir, basename + "_chain_remapping.pkl")
+        
+        if override or not os.path.isfile(remapping_out):
+
+            chain_remap_df = extract_assembly_metadata(
+                assembly_path,
+                "_pdbe_chain_remapping"
+            )
+            chain_remap_df.to_pickle(remapping_out)
+            
+        else:
+            log.info("Loading remapping dataframe!")
+            chain_remap_df = pd.read_pickle(remapping_out)
+
+        chain_remap_dict = dict(zip(chain_remap_df["new_auth_asym_id"], chain_remap_df["orig_label_asym_id"])) # dict from new_auth_asym_id to orig_label_asym_id
+        
+        input_struct = os.path.join(asymmetric_dir, "{}.cif".format(pdb_id))#os.path.join(cfg.db_root, cfg.db_pdbx, "{}.cif".format(pdb_id))
+        
+        pdb2up_out = os.path.join(cif_sifts_dir, "{}_pdb2up.pkl".format(pdb_id))
+        up2pdb_out = os.path.join(cif_sifts_dir, "{}_up2pdb.pkl".format(pdb_id))
+        chain2acc_out = os.path.join(cif_sifts_dir, "{}_chain2acc.pkl".format(pdb_id))
+        
+        if override or not os.path.isfile(pdb2up_out) or not os.path.isfile(up2pdb_out) or not os.path.isfile(chain2acc_out):
+            
+            asym_cif_df = PDBXreader(inputfile = input_struct).atoms(format_type = "mmcif")
+            pdb2up, up2pdb, chain2acc = get_SIFTS_from_CIF(asym_cif_df, pdb_id)
+            dump_pickle(pdb2up, pdb2up_out)
+            dump_pickle(up2pdb, up2pdb_out)
+            dump_pickle(chain2acc, chain2acc_out)
+        
+        else:
+            log.info("Loading CIF SIFTS mapping dicts!")
+            pdb2up = load_pickle(pdb2up_out)
+            up2pdb = load_pickle(up2pdb_out)
+            chain2acc = load_pickle(chain2acc_out)
+
+        lig_sel = " ".join(["/{}/{}/".format(el[1], el[2]) for el in ligs_dict[pdb_id]])
+
+        ligand_names = list(set([el[0] for el in ligs_dict[pdb_id]]))
+
+        arpeggio_out = os.path.join(arpeggio_dir, basename + ".json")
+        if override or not os.path.isfile(arpeggio_out):
+            run_arpeggio(assembly_path, lig_sel, arpeggio_dir)
+        else:
+            log.debug("{} already exists!".format(arpeggio_out))
+            pass
+
+        arp_df = pd.read_json(arpeggio_out) 
+        
+        arpeggio_proc_df_out = os.path.join(arpeggio_dir, basename + "_proc.pkl")
+        if override or not os.path.isfile(arpeggio_proc_df_out):
+
+            proc_inters = process_arpeggio_df(
+                arp_df, ligs_dict, pdb_id, ligand_names, chain_remap_dict,
+                pdb2up, chain2acc, acc, segment_start, segment_end
+            )
+
+            coords_dict = generate_dictionary(assembly_path)
+
+            proc_inters["coords_end"] = proc_inters.set_index(["auth_asym_id_end", "label_comp_id_end", "auth_seq_id_end", "auth_atom_id_end"]).index.map(coords_dict.get)
+            proc_inters["coords_bgn"] = proc_inters.set_index(["auth_asym_id_bgn", "label_comp_id_bgn", "auth_seq_id_bgn", "auth_atom_id_bgn"]).index.map(coords_dict.get)
+
+            proc_inters["width"] = proc_inters["contact"].apply(determine_width)
+            proc_inters["color"] = proc_inters["contact"].apply(determine_color)
+            proc_inters.to_pickle(arpeggio_proc_df_out)
+        else:
+            log.debug("{} already exists!".format(arpeggio_proc_df_out))
+            proc_inters = pd.read_pickle(arpeggio_proc_df_out)
+        
+        for el in ligs_dict[pdb_id]:
+            proc_inters_indexed = proc_inters.set_index(["label_comp_id_bgn", "auth_asym_id_bgn", "auth_seq_id_bgn"])
+            lig_rows = proc_inters_indexed.loc[el, :]
+            lig_fp = lig_rows.UniProt_ResNum_end.unique().tolist()
+            lig_key = "{}_".format(pdb_id) + "_".join([str(l) for l in el])
+            fp_dict[lig_key] = lig_fp
+            
+    return fp_dict
 
 ## PDBe-KB REST API CALLS PARSING FUNCTIONS
 
@@ -628,17 +971,23 @@ def get_fingerprints_dict(acc, fps_dir, out, all_ligs_pdbs, segment_i_chains, bo
 
     return all_fingerprints
 
+# def get_labs(fingerprints_dict):
+#     """
+#     Returns all ligand labels from fingerprints dict.
+#     """
+#     return [k1 + "_" + k2 for k1, v1 in fingerprints_dict.items() for k2 in v1.keys()]
+
 def get_labs(fingerprints_dict):
     """
     Returns all ligand labels from fingerprints dict.
     """
-    return [k1 + "_" + k2 for k1, v1 in fingerprints_dict.items() for k2 in v1.keys()]
+    return [k for k in fingerprints_dict.keys()]
 
 def get_inters(fingerprints_dict):
     """
     Returns all ligand fingerprints from fingerprints dict.
     """
-    return [v2 for v1 in fingerprints_dict.values() for v2 in v1.values()]
+    return [v for v in fingerprints_dict.values()]
 
 def filter_non_relevant_ligs(fingerprints_dict, relevant_ligs):
     """
@@ -883,84 +1232,68 @@ def get_residue_bs_membership(cluster_ress):
 
 ## DSSP
 
-def run_dssp(pdb_path, trans_dir, dssp_dir):
+def run_dssp(cif_path, dssp_dir):
     """
-    Runs DSSP unbound, and saves formatted resulting output dataframe.
-    pdb_path is a relative path to input pdb file, which absoulute path
-    results from joining it with trans_dir.
+    Runs DSSP on cif_path, and saves formatted resulting output dataframe.
     """
     
-    struc_in = os.path.join(trans_dir, pdb_path)
-    pdb_root, _ = os.path.splitext(pdb_path)
+    pdb_root, _ = os.path.splitext(os.path.basename(cif_path))
     dssp_out = os.path.join(dssp_dir, pdb_root + ".dssp")
     dssp_pickle = os.path.join(dssp_dir, pdb_root + ".pkl") # output pickle filepath
-    #dssp_out = os.path.join(dssp_dir, pdb_path.replace("pdb", "dssp"))
-    #dssp_pickle = os.path.join(dssp_dir, pdb_path.replace("pdb", "pkl")) # output pickle filepath
     if os.path.isfile(dssp_out):
         pass
     else:
-        DSSPrunner(inputfile = struc_in, outputfile = dssp_out).write(run_unbound = True)            # runs DSSP
+        DSSPrunner(inputfile = cif_path, outputfile = dssp_out).write()            # runs DSSP
 
     if os.path.isfile(dssp_pickle):
         return
     else:
         dssp_data = DSSPreader(inputfile = dssp_out).read()            # reads DSSP output
+        dssp_data['THE_CHAIN'] = dssp_data.apply(lambda row: row['CHAIN_REAL_LABEL'] if row['CHAIN'] == '>' else row['CHAIN'], axis=1)
         dssp_data = dssp_data.rename(index = str, columns = {"RES": "PDB_ResNum"})
-        dssp_data.PDB_ResNum = dssp_data.PDB_ResNum.astype(str)
-        dssp_data.to_pickle(dssp_pickle)#, index = False)
+        dssp_data.PDB_ResNum = dssp_data.PDB_ResNum.astype(int)
+        dssp_data.to_pickle(dssp_pickle)
 
-def get_dssp_data(trans_dir, dssp_dir, sifts_mapping_dict, out):
+def get_dssp_data(pdb_ids, assembly_dir, dssp_dir, cif_sifts_dir, chain_remapping_dir, out):
     """
     Given a dir with transformed files, output dssp dir, and
     sifts mapping dictionary, runs DSSP for all structures and
     returns a dataframe with DSSP data from all structures.
     """
-    trans_files = [f for f in os.listdir(trans_dir) if f.endswith("_trans.pdb")]
     all_dssp_dfs = []
-    for trans_file in trans_files:
-        # skip those files which do not include target protein, therefore, have no SIFTS mapping?
-        pdb_id, chain_id, _ = trans_file.split("_")
+    for pdb_id in pdb_ids:
+        assembly_path = os.path.join(assembly_dir, "{}_bio.cif".format(pdb_id))
         try:
-            mol_type_dict = get_mol_type_dict(pdb_id)
+            run_dssp(assembly_path, dssp_dir)
         except:
-            log.error("Molecule type data could not be retrieved for {}".format(pdb_id))
+            cif_df = PDBXreader(inputfile = assembly_path).atoms(format_type = "mmcif", excluded=())
+            cif_df_atom = cif_df.query('group_PDB == "ATOM"').copy()
+            un_atoms = cif_df_atom.label_atom_id.unique().tolist()
+            if un_atoms == ["CA"]:
+                log.warning("Only CA atoms found in {}. Skipping DSSP".format(assembly_path)) # DSSP crashes, for example 3jcr_C. Only CA atoms.
+            elif set(un_atoms).issubset(set(bbone_atoms)):
+                log.warning("Only backbone atoms found in {}. Skipping DSSP".format(assembly_path)) # incomplete residues, CA + rest of backbone, but no side chains, e.g., 6yw7
+            else:
+                log.error("Unknown DSSP Error for {}".format(assembly_path)) 
+                print(assembly_path, dssp_dir)
             continue
-        chain_mol_type = mol_type_dict[chain_id]
-        if "polypeptide(L)" not in chain_mol_type: # NOT RUNNING DSSP FOR ONLY NON-PROTEIN CHAINS
-            log.warning("Chain {} in {} includes {}. Skipping DSSP.".format(chain_id, pdb_id, chain_mol_type))
-            continue
-        else:
-            try:
-                run_dssp(trans_file, trans_dir, dssp_dir)
-            except:
-                pdb_in = os.path.join(trans_dir, trans_file)
-                pdb_df = PDBXreader(inputfile = pdb_in).atoms(format_type = "pdb", excluded=())
-                pdb_df_atom = pdb_df.query('group_PDB == "ATOM"')
-                un_atoms = pdb_df_atom.label_atom_id.unique().tolist()
-                if un_atoms == ["CA"]:
-                    log.warning("Only CA atoms found in {}. Skipping DSSP".format(pdb_in)) # DSSP crashes, for example 3jcr_C. Only CA atoms.
-                elif set(un_atoms).issubset(set(bbone_atoms)):
-                    log.warning("Only backbone atoms found in {}. Skipping DSSP".format(pdb_in)) # incomplete residues, CA + rest of backbone, but no side chains, e.g., 6yw7
-                else:
-                    log.error("Unknown DSSP Error for {}".format(pdb_in)) 
-                continue
-            trans_root, _ = os.path.splitext(trans_file)
-            dssp_df = pd.read_pickle(os.path.join(dssp_dir, trans_root + ".pkl"))
-            #dssp_df = pd.read_pickle(os.path.join(dssp_dir, trans_file.replace("pdb", "pkl")))
-            dssp_df.PDB_ResNum = dssp_df.PDB_ResNum.astype(str)
-            try:
-                dssp_df["UniProt_ResNum"] = dssp_df["PDB_ResNum"].map(sifts_mapping_dict[pdb_id][chain_id])
-            except KeyError as e:
-                dssp_df["UniProt_ResNum"] = np.nan
-                log.error("SIFTS mapping could not be found for chain {} in {}".format(chain_id, pdb_id))
-            dssp_df["PDB_ID"] = pdb_id
-            all_dssp_dfs.append(dssp_df)
+        assembly_root, _ = os.path.splitext(os.path.basename(assembly_path))
+        dssp_df = pd.read_pickle(os.path.join(dssp_dir, assembly_root + ".pkl"))
+        
+        sifts_dict = load_pickle(os.path.join(cif_sifts_dir, "{}_pdb2up.pkl".format(pdb_id)))
+        chain_remapping_df = load_pickle(os.path.join(chain_remapping_dir, "{}_bio_chain_remapping.pkl".format(pdb_id)))
+        chain_remapping_dict = dict(zip(chain_remapping_df["new_label_asym_id"], chain_remapping_df["orig_label_asym_id"]))
+        
+        dssp_df["UniProt_ResNum"] = dssp_df.apply(lambda row: map_values_dssp(row, sifts_dict, pdb_id, chain_remapping_dict), axis=1)
+        dssp_df = dssp_df.query('UniProt_ResNum == UniProt_ResNum').copy() # dropping artificially added residues (to cristallise, have no SIFTS mapping to UniProt)
+        dssp_df["UniProt_ResNum"] = dssp_df["UniProt_ResNum"].astype(int)
+        dssp_df["PDB_ID"] = pdb_id
+        all_dssp_dfs.append(dssp_df)
     if all_dssp_dfs == []: # list of dssp dfs is empty, e.g., all structures have CA atoms only (Q12840)
         return pd.DataFrame()
     else:
-        master_dssp_df = pd.concat(all_dssp_dfs)
-        master_dssp_df.reset_index(drop = True, inplace = True)
-        master_dssp_df.to_pickle(out)#, index = False)
+        master_dssp_df = pd.concat(all_dssp_dfs).reset_index(drop = True)
+        master_dssp_df.to_pickle(out)
         return master_dssp_df
 
 ## MSA UTILS
@@ -1492,6 +1825,8 @@ if __name__ == '__main__': ### command to run form command line: python3.6 frags
     for segment in segments:
 
         seg_id = "{}_{}".format(acc, str(segment))
+        segment_start = supp_data.loc[segment, acc]["segment_start"]
+        segment_end = supp_data.loc[segment, acc]["segment_end"]
 
         try:
 
@@ -1626,7 +1961,7 @@ if __name__ == '__main__': ### command to run form command line: python3.6 frags
                 pdb_ids = [pdb_id for pdb_id in pdb_ids if pdb_id not in ids2remove] # now only desired experimental method and resolution are kept
                 #cif_files = [cif_file for cif_file in cif_files if cif_file not in files2remove] # now only desired experimental method and resolution are kept
 
-            log.info("Segment {} of {} presents {} high quality chains".format(str(segment), acc, str(len(pdb_ids))))
+            log.info("Segment {} of {} presents {} high quality structures".format(str(segment), acc, str(len(pdb_ids))))
             
             ### CHECKING AMOUNT OF PDB FILES AND PDB IDS ARE THE SAME
 
@@ -1658,7 +1993,7 @@ if __name__ == '__main__': ### command to run form command line: python3.6 frags
 
             fps_out = os.path.join(results_dir, "{}_{}_{}_{}_ligs_fingerprints.pkl".format(acc, str(segment), experimental_methods, str(resolution))) #fps: will stand for fingerprints. update with main_dir and so on.
             #pdb_set = segment_df.pdb_id.unique().tolist()
-            log.info("There are {} unique PDBs for Segment {} of {}".format(str(len(pdb_set)), str(segment), acc))
+            #log.info("There are {} unique PDBs for Segment {} of {}".format(str(len(pdb_set)), str(segment), acc))
             #all_ligs_pdbs_segment = [pdb for pdb in all_ligs_pdbs if pdb in pdb_set] # filtering pdbs so only data about segment is retrieved. Think it is unnecessary, but OK.
             #try:
             #    assert set(pdb_set) == set(all_ligs_pdbs_segment)
@@ -1679,12 +2014,12 @@ if __name__ == '__main__': ### command to run form command line: python3.6 frags
             download_and_move_files(pdb_ids, ASYM_FOLDER) # fetching updated CIF from API using ProIntVar
 
             if override or not os.path.isfile(fps_out):
-                if all_ligs_pdbs_segment == []:
-                    print("{}\t{}".format(seg_id, str(5)), flush = True)
-                    log.warning("Segment {} of {} does not present any ligand-binding structures".format(str(segment), acc))
-                    continue
-                else:
-                    lig_fps = get_arpeggio_fingerprints(pdb_ids, ASSEMBLY_FOLDER, ASYM_FOLDER, arpeggio_dir, CHAIN_REMAPPING_FOLDER, CIF_SIFTS_FOLDER, ligs_dict) ### TODO IF WANTED: IMPLEMENT ONLY-SIDECHAIN INTERACTIONS ###
+                # if all_ligs_pdbs_segment == []:
+                #     print("{}\t{}".format(seg_id, str(5)), flush = True)
+                #     log.warning("Segment {} of {} does not present any ligand-binding structures".format(str(segment), acc))
+                #     continue
+                #else:
+                lig_fps = get_arpeggio_fingerprints(pdb_ids, ASSEMBLY_FOLDER, ASYM_FOLDER, arpeggio_dir, CHAIN_REMAPPING_FOLDER, CIF_SIFTS_FOLDER, ligs_dict) ### TODO IF WANTED: IMPLEMENT ONLY-SIDECHAIN INTERACTIONS ###
                     #lig_fps = get_fingerprints_dict(acc, fps_dir, fps_out, all_ligs_pdbs_segment, segment_chains[segment], MOLS_FOLDER, INTERS_FOLDER) # GETS ALL LIGAND FINGERPRINTS FROM LIG-BOUND CONTAINING PDBS
             else:
                 with open(fps_out, "rb") as f:
@@ -1713,7 +2048,7 @@ if __name__ == '__main__': ### command to run form command line: python3.6 frags
 
             ### FILTER OUT NON-SEGMENT LIGAND INTERACTIONS
 
-            n_acc_chain_inters = sum([len(inters) for ligs in lig_fps.values() for inters in ligs.values()]) # number of ligands interactions with target UniProt Accession chains for all structures in a segment
+            n_acc_chain_inters = sum([len(inters) for inters in lig_fps.values()]) # number of ligands interactions with target UniProt Accession chains for all structures in a segment
             
             if n_acc_chain_inters == 0: #there are ligands bound, but not to the target protein chains, across all ligands bound in all structures for a segment
                 print("{}\t{}".format(seg_id, str(7)), flush = True)
@@ -1878,7 +2213,7 @@ if __name__ == '__main__': ### command to run form command line: python3.6 frags
                 log.debug("Loaded binding site membership")
 
             if override or not os.path.isfile(cluster_ress_out):
-                cluster_ress = get_all_cluster_ress(membership, lig_fps_filt2_sifted_v2) # residues that form each LBS 
+                cluster_ress = get_all_cluster_ress(membership, lig_fps_filt2_sifted) # residues that form each LBS 
                 dump_pickle(cluster_ress, cluster_ress_out) 
                 log.info("Calculated binding site composition") 
             else:
@@ -1897,7 +2232,7 @@ if __name__ == '__main__': ### command to run form command line: python3.6 frags
 
             master_dssp_out = os.path.join(results_dir, "{}_{}_{}_{}_strs_dssp.pkl".format(acc, str(segment), experimental_methods, str(resolution)))
             if override or not os.path.isfile(master_dssp_out):
-                dssp_data = get_dssp_data(trans_dir, dssp_dir, sifts_mapping, master_dssp_out)
+                dssp_data = get_dssp_data(pdb_ids, ASSEMBLY_FOLDER, dssp_dir, CIF_SIFTS_FOLDER, CHAIN_REMAPPING_FOLDER, master_dssp_out)
                 log.info("Obtained DSSP data")
             else:
                 dssp_data = pd.read_pickle(master_dssp_out)
@@ -1905,10 +2240,10 @@ if __name__ == '__main__': ### command to run form command line: python3.6 frags
             if dssp_data.empty:
                 log.warning("There is no DSSP data for Segment {} of {}".format(str(segment), acc))
             else:
-                dsspd_filt = dssp_data.query('UniProt_ResNum == UniProt_ResNum and AA != "X" and RSA == RSA').copy()
+                dsspd_filt = dssp_data.query('AA != "X" and RSA == RSA').copy()
                 dsspd_filt.SS = dsspd_filt.SS.fillna("C")
                 dsspd_filt.SS = dsspd_filt.SS.replace("", "C")
-                dsspd_filt.UniProt_ResNum = dsspd_filt.UniProt_ResNum.astype(int)
+                #dsspd_filt.UniProt_ResNum = dsspd_filt.UniProt_ResNum.astype(int)
 
                 AA_dict_out = os.path.join(results_dir, "{}_{}_{}_{}_ress_AA.pkl".format(acc, str(segment), experimental_methods, str(resolution)))
                 RSA_dict_out = os.path.join(results_dir, "{}_{}_{}_{}_ress_RSA.pkl".format(acc, str(segment), experimental_methods, str(resolution)))
@@ -2010,7 +2345,6 @@ if __name__ == '__main__': ### command to run form command line: python3.6 frags
             log.info("MSA realised for Segment {} of {}".format(str(segment), acc))
 
             ### CONSERVATION ANALYSIS
-            #print(hits_aln, best_seq_id)
             prot_cols = prot_cols = get_target_prot_cols(hits_aln, best_seq_id)
             shenkin_out = os.path.join(variants_dir, "{}_{}_rf_shenkin.pkl".format(acc, str(segment)))
             if override_variants or not os.path.isfile(shenkin_out):
@@ -2177,6 +2511,9 @@ if __name__ == '__main__': ### command to run form command line: python3.6 frags
             print("{}\t{}".format(seg_id, str(1)), flush = True)
             log.error("Segment {} of {} failed due to {}".format(str(segment), acc, e))
             raise
+
+        log.info("Only running for Segment {}. Breaking now.".format(str(segment)))
+        break
 
     log.info("THE END")
 
