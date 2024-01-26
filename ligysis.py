@@ -18,8 +18,10 @@ import pandas as pd
 import configparser
 from Bio import PDB
 from Bio import AlignIO
+from Bio.PDB import Select
 import scipy.stats as stats
 from Bio.PDB import MMCIFParser
+
 from Bio.PDB.MMCIF2Dict import MMCIF2Dict
 
 from prointvar.pdbx import PDBXreader, PDBXwriter
@@ -196,16 +198,16 @@ def load_pickle(f_in):
 
 ## CLEANING PDB FILES
 
-def run_clean_pdb(pdb_path):
-    """
-    Runs pdb_clean.py.
-    """
-    args = [
-        clean_pdb_python_bin, clean_pdb_bin, pdb_path
-    ]
-    exit_code = os.system(" ".join(args))
-    if exit_code != 0:
-        log.critical("{} was not cleaned with command: {}".format(pdb_path, " ".join(args)))
+# def run_clean_pdb(pdb_path):
+#     """
+#     Runs pdb_clean.py.
+#     """
+#     args = [
+#         clean_pdb_python_bin, clean_pdb_bin, pdb_path
+#     ]
+#     exit_code = os.system(" ".join(args))
+#     if exit_code != 0:
+#         log.critical("{} was not cleaned with command: {}".format(pdb_path, " ".join(args)))
 
 ## TRANSFORMING PDB FILES
 
@@ -239,7 +241,7 @@ def get_segments_dict(supp_data, acc):
         for cluster in clusters:
             for member in cluster:
                 pdb_id = member["pdb_id"]
-                chain_id = member["struct_asym_id"] # this correspobds to the original label_asym_id of the CIF file
+                chain_id = member["struct_asym_id"] # this corresponds to the original label_asym_id of the CIF file
                 unit_id = "{}_{}".format(pdb_id, chain_id)
                 segment_dict[idx][unit_id] = member
     return segment_dict
@@ -273,26 +275,46 @@ def parse_pdb_file(pdb_path, fmt):
         parser = PDB.MMCIFParser()
         
     pdb_id, _ = os.path.splitext(os.path.basename(pdb_path))
-    #print(pdb_path, pdb_id)
     structure = parser.get_structure(pdb_id, pdb_path)
     return structure
 
-from Bio.PDB import Select
-class NotDisordered(Select):
-    def accept_atom(self, atom):
-        return not atom.is_disordered() or atom.get_altloc() == "A"
-
 class HighestOccupancy(Select):
-    # def __init__(self):
-    #     self.selected_atoms = {}
+    def __init__(self, structure):
+        self.structure = structure
+        self.highest_occupancy_altlocs = self._find_highest_occupancy_altlocs()
+
+    def _find_highest_occupancy_altlocs(self):
+        highest_occupancy = {}
+        for model in self.structure:
+            for chain in model:
+                for residue in chain:
+                    for atom in residue:
+                        if atom.element == 'H':
+                            continue  # Skip hydrogen atoms
+
+                        if not atom.is_disordered():
+                            continue  # Ignore non-disordered atoms
+
+                        atom_id = (residue.get_id(), atom.get_name())
+                        for altloc_id, altloc_atom in atom.child_dict.items():
+                            if altloc_id == ' ':
+                                continue  # Skip the default blank altloc
+
+                            if atom_id not in highest_occupancy or altloc_atom.get_occupancy() > highest_occupancy[atom_id][1]:
+                                highest_occupancy[atom_id] = (altloc_id, altloc_atom.get_occupancy())
+
+        return highest_occupancy
 
     def accept_atom(self, atom):
+        if atom.element == 'H':
+            return False  # Skip hydrogen atoms
 
-        if atom.get_occupancy() >= 0.5:
-            return True
+        if atom.is_disordered():
+            atom_id = (atom.get_parent().get_id(), atom.get_name())
+            return atom.get_altloc() == self.highest_occupancy_altlocs.get(atom_id, (' ', 0))[0]
         else:
-            return False
-
+            return True  # Accept non-disordered atoms
+        
 def apply_transformation(structure, matrix, output_path, chain_id, fmt):
     """
     Transforms structure based on the transformation matrix
@@ -316,40 +338,10 @@ def apply_transformation(structure, matrix, output_path, chain_id, fmt):
             if chain.id == chain_id:
                 for residue in chain:
                     for atom in residue:
-                        # print(atom.get_altloc(), atom.get_occupancy())
                         atom.transform(rotation, translation)
-
-    # for model in structure:
-    #     for chain in model:
-    #         if chain.id == chain_id:
-    #             for residue in chain:
-    #                 altloc_atoms = {}  # Track atoms with altlocs
-
-    #                 # First pass: Find highest occupancy for each altloc position
-    #                 for atom in residue.get_unpacked_list():
-
-    #                     atom_id = (atom.get_parent().get_id(), atom.get_name())
-    #                     altloc = atom.get_altloc()
-
-    #                     if altloc not in (' ', 'A'):  # Consider only altloc atoms
-    #                         if atom_id not in altloc_atoms or atom.get_occupancy() > altloc_atoms[atom_id][1]:
-    #                             altloc_atoms[atom_id] = (atom, atom.get_occupancy())
-
-    #                 # Second pass: Remove lower occupancy altlocs
-    #                 for atom in residue.get_unpacked_list():
-    #                     atom_id = (atom.get_parent().get_id(), atom.get_name())
-    #                     altloc = atom.get_altloc()
-
-    #                     if altloc not in (' ', 'A') and (atom_id not in altloc_atoms or atom is not altloc_atoms[atom_id][0]):
-    #                         residue.detach_child(atom.get_id())
-
-    #                 # Apply transformation to the remaining atoms
-    #                 for atom in residue:
-    #                     atom.transform(rotation, translation)
-
     
                 io.set_structure(chain)
-                io.save(output_path, select=HighestOccupancy())
+                io.save(output_path, select=HighestOccupancy(structure))
 
 def pdb_transform(pdb_path, output_path, matrix_raw, chain_id, fmt = struc_fmt):
     """
@@ -364,37 +356,56 @@ def pdb_transform(pdb_path, output_path, matrix_raw, chain_id, fmt = struc_fmt):
 
     apply_transformation(structure, matrix_rf, output_path, chain_id, fmt) # by default has to be AUTH_ASYM_ID
 
-def transform_all_files(cif_files, matrices, chains, raw_dir, clean_dir, trans_dir):
+# def transform_all_files(cif_files, matrices, chains, raw_dir, clean_dir, trans_dir):
+    # """
+    # Given a set of CIF files, matrices, and chains, uncompresses, cleans and transforms
+    # the coordinates according to a transformation matrix
+    # """
+    # for i, pdb_in in enumerate(pdb_files):
+    #     pdb_root, _ = os.path.splitext(os.path.splitext(os.path.basename(pdb_in))[0])
+    #     pdb_out = os.path.join(raw_dir, pdb_root[3:] + ".pdb")
+    #     pdb_id = os.path.basename(pdb_in)[3:7]
+    #     if os.path.isfile(pdb_out):
+    #         pass
+    #     else:
+    #         with gzip.open(pdb_in, "rb") as f_in:
+    #             with open(pdb_out, "wb") as f_out:
+    #                 shutil.copyfileobj(f_in, f_out)
+    #     file_clean_from = os.path.join(raw_dir, pdb_root[3:] + ".clean.pdb")
+    #     file_clean_to = os.path.join(clean_dir, pdb_root[3:] + ".clean.pdb")
+    #     if os.path.isfile(file_clean_to):
+    #         pass
+    #     else:
+    #         run_clean_pdb(pdb_out)
+    #         os.remove(os.path.join(raw_dir, pdb_root[3:] + ".pdb" + ".breaks"))
+    #         os.remove(os.path.join(raw_dir, pdb_root[3:] + ".pdb" + ".break_residues"))
+    #         shutil.move(file_clean_from, file_clean_to)
+    #         log.info("{} cleaned".format(pdb_id))
+    #     transformed_out = os.path.join(trans_dir, pdb_root[3:] + "_{}_trans.pdb".format(chains[i]))
+    #     if os.path.isfile(transformed_out):
+    #         pass
+    #     else:
+    #         pdb_transform(file_clean_to, transformed_out, matrices[i], chains[i])
+    #         log.info("{}_{} transformed".format(pdb_id, chains[i]))
+
+def transform_all_files(pdb_ids, matrices, struct_chains, auth_chains, asymmetric_dir, trans_dir):
     """
-    Given a set of CIF files, matrices, and chains, uncompresses, cleans and transforms
+    Given a set of PDB IDs, matrices, and chains, transforms
     the coordinates according to a transformation matrix
     """
-    for i, pdb_in in enumerate(pdb_files):
-        pdb_root, _ = os.path.splitext(os.path.splitext(os.path.basename(pdb_in))[0])
-        pdb_out = os.path.join(raw_dir, pdb_root[3:] + ".pdb")
-        pdb_id = os.path.basename(pdb_in)[3:7]
-        if os.path.isfile(pdb_out):
+    for i, pdb_id in enumerate(pdb_ids):
+        
+        asym_cif = os.path.join(asymmetric_dir, "{}.cif".format(pdb_id))
+        
+        root, ext = os.path.splitext(os.path.basename(asym_cif))
+        
+        trans_cif = os.path.join(trans_dir, "{}_{}_trans{}".format(root, struct_chains[i], ext))
+   
+        if os.path.isfile(trans_cif):
             pass
         else:
-            with gzip.open(pdb_in, "rb") as f_in:
-                with open(pdb_out, "wb") as f_out:
-                    shutil.copyfileobj(f_in, f_out)
-        file_clean_from = os.path.join(raw_dir, pdb_root[3:] + ".clean.pdb")
-        file_clean_to = os.path.join(clean_dir, pdb_root[3:] + ".clean.pdb")
-        if os.path.isfile(file_clean_to):
-            pass
-        else:
-            run_clean_pdb(pdb_out)
-            os.remove(os.path.join(raw_dir, pdb_root[3:] + ".pdb" + ".breaks"))
-            os.remove(os.path.join(raw_dir, pdb_root[3:] + ".pdb" + ".break_residues"))
-            shutil.move(file_clean_from, file_clean_to)
-            log.info("{} cleaned".format(pdb_id))
-        transformed_out = os.path.join(trans_dir, pdb_root[3:] + "_{}_trans.pdb".format(chains[i]))
-        if os.path.isfile(transformed_out):
-            pass
-        else:
-            pdb_transform(file_clean_to, transformed_out, matrices[i], chains[i])
-            log.info("{}_{} transformed".format(pdb_id, chains[i]))
+            pdb_transform(asym_cif, trans_cif, matrices[i], auth_chains[i], fmt = struc_fmt)
+            log.info("{}_{} transformed".format(pdb_id, struct_chains[i]))
 
 ## EXPERIMENTAL DATA AND VALIDATION
 
@@ -434,30 +445,30 @@ def get_experimental_data(pdb_ids, exp_data_dir, out):
 
 def get_simple_pdbs(trans_dir, simple_dir):
     """
-    This function simplifies a group of PDB files that have been
-    transformed and are imposed in space. It will only keep the
+    This function simplifies a group of CIF files that have been
+    transformed and are superimposed in space. It will only keep the
     ATOM records of the first file. For the rest, it will only
     save the HETATM records, corresponding to ligands.
     """
-    pdb_files = [os.path.join(trans_dir, f) for f in os.listdir(trans_dir) if f.endswith("_trans.pdb")]
-    first_simple = os.path.join(simple_dir, os.path.basename(pdb_files[0]))
+    cif_files = [os.path.join(trans_dir, f) for f in os.listdir(trans_dir) if f.endswith("_trans.cif")]
+    first_simple = os.path.join(simple_dir, os.path.basename(cif_files[0]))
     if os.path.isfile(first_simple):
         pass
     else:
-        shutil.copy(pdb_files[0], first_simple)
-    for pdb_in in pdb_files[1:]:
-        pdb_id = os.path.basename(pdb_in)[:6]
-        pdb_out = os.path.join(simple_dir, os.path.basename(pdb_in))
-        if os.path.isfile(pdb_out):
+        shutil.copy(cif_files[0], first_simple)
+    for cif_in in cif_files[1:]:
+        pdb_id = os.path.basename(cif_in)[:6]
+        cif_out = os.path.join(simple_dir, os.path.basename(cif_in))
+        if os.path.isfile(cif_out):
             continue
-        pdb_df = PDBXreader(inputfile = pdb_in).atoms(format_type = "pdb", excluded=())
-        hetatm_df = pdb_df.query('group_PDB == "HETATM"') #[pdb_df.group_PDB == "HETATM"]
+        cif_df = PDBXreader(inputfile = cif_in).atoms(format_type = "mmcif", excluded=())
+        hetatm_df = cif_df.query('group_PDB == "HETATM"') #[pdb_df.group_PDB == "HETATM"]
         if len(hetatm_df) == 0:
             log.warning("No HETATM records in {}".format(pdb_id))
             continue
         hetatm_df = hetatm_df.replace({"label_alt_id": ""}, " ")
-        w = PDBXwriter(outputfile = pdb_out)
-        w.run(hetatm_df, format_type = "pdb", category = "auth")
+        w = PDBXwriter(outputfile = cif_out)
+        w.run(hetatm_df, format_type = "mmcif")
         log.debug("{} simplified".format(pdb_id))
 
 ## RELATIVE INTERSECTION, AND METRIC FUNCTIONS
@@ -623,6 +634,7 @@ def switch_columns(df, names):
     return df
 
 # Define the mapping function
+
 def map_values(row, pdb2up, pdb_id):
     """
     maps UniProt ResNums from SIFTS dictionary from CIF file to Arpeggio dataframe.
@@ -1021,12 +1033,6 @@ def get_fingerprints_dict(acc, fps_dir, out, all_ligs_pdbs, segment_i_chains, bo
 
     return all_fingerprints
 
-# def get_labs(fingerprints_dict):
-#     """
-#     Returns all ligand labels from fingerprints dict.
-#     """
-#     return [k1 + "_" + k2 for k1, v1 in fingerprints_dict.items() for k2 in v1.keys()]
-
 def get_labs(fingerprints_dict):
     """
     Returns all ligand labels from fingerprints dict.
@@ -1182,23 +1188,24 @@ def get_mol_type_dict(pdb_id):
 
 ## CHIMERA COLOURING FUNCTIONS, AND VISUALISATION
 
-def get_chimera_data(cluster_id_dict):
+def get_chimera_data(cluster_id_dict, lig2chain_cif): # cluster_id_dict is now the new one with orig_label_asym_id
     """
     Gets chimera atom specs, binding site ids, and paths
     to pdb files to generate the attribute files later, and
-    eventually colour models.
+    eventually colour models. 
     """
     chimera_atom_specs, bs_ids, pdb_paths = [[], [], []]
     for k, v in cluster_id_dict.items():
         ld = k.split("_") # stands for lig data
         pdb_id, lig_resname, lig_chain_id, lig_resnum  = [ld[0], ld[1], ld[2], ld[3]] # not sure why sometimes chain ID is A_1, and sometimes just A. Q9UKK9, 5qjj.
+
             
         bs_id = str(v)
-        pdb_path = "{}_{}_trans.pdb".format(pdb_id, lig_chain_id)
+        pdb_path = "{}_{}_trans.cif".format(pdb_id, lig_chain_id)
         chimera_atom_spec = (
             ":"+ str(lig_resnum) +
             "."+ lig_chain_id +
-            "&#/name==" + pdb_path
+            "&#/name==" + lig2chain_cif[k]
         )
         chimera_atom_specs.append(chimera_atom_spec)
     return chimera_atom_specs
@@ -1883,19 +1890,21 @@ if __name__ == '__main__': ### command to run form command line: python3.6 frags
             ### CREATES SEGMENT DIRECTORY, AND SUBDIRECTORIES
 
             segment_dir = os.path.join(wd, str(segment))
-            raw_dir = os.path.join(segment_dir, "raw")
-            clean_dir = os.path.join(segment_dir, "clean")
+            #raw_dir = os.path.join(segment_dir, "raw")
+            #clean_dir = os.path.join(segment_dir, "clean")
             trans_dir = os.path.join(segment_dir, "trans")
             simple_dir = os.path.join(segment_dir, "simple")
-            fps_dir = os.path.join(segment_dir, "fingerprints")
+            #fps_dir = os.path.join(segment_dir, "fingerprints")
             arpeggio_dir = os.path.join(segment_dir, "arpeggio")
             dssp_dir = os.path.join(segment_dir, "dssp")
             variants_dir = os.path.join(segment_dir, "variants")
             results_dir = os.path.join(segment_dir, "results")
 
             dirs = [
-                segment_dir, raw_dir, clean_dir, trans_dir,
-                simple_dir, fps_dir, dssp_dir,
+                segment_dir, #raw_dir, clean_dir,
+                trans_dir,
+                simple_dir, #fps_dir,
+                dssp_dir,
                 variants_dir, results_dir,
             ]
             
@@ -2023,7 +2032,9 @@ if __name__ == '__main__': ### command to run form command line: python3.6 frags
 
             segment_df = segment_df.query('pdb_id in @pdb_ids') # filtering segment dataframe, so it only includes transformation data of those tructures present in local copy of PDB
             matrices = segment_df.matrix.tolist()
-            chains = segment_df.struct_asym_id.tolist() # this is the same as orig_label_asym_id
+            struct_chains = segment_df.struct_asym_id.tolist() # this is the same as orig_label_asym_id
+            auth_chains = segment_df.auth_asym_id.tolist() # this is the same as orig_auth_asym_id
+
 
             ### CHECKING PDB IDS AGREE WITH SEGMENT DF PDB IDS
 
@@ -2221,7 +2232,9 @@ if __name__ == '__main__': ### command to run form command line: python3.6 frags
 
             asym_cif_files = [os.path.join(ASYM_FOLDER, "{}.cif") for pdb_id in pdb_ids] # using asymmetric unit just for superposition
 
-            transform_all_files(asym_cif_files, matrices, chains, raw_dir, clean_dir, trans_dir) # I think we lose all ligands here that are on independent chains. This is because they don't have a matrix (no backbone)
+            # transform_all_files(asym_cif_files, matrices, chains, raw_dir, clean_dir, trans_dir) # I think we lose all ligands here that are on independent chains. This is because they don't have a matrix (no backbone)
+
+            transform_all_files(pdb_ids, matrices, struct_chains, auth_chains, ASYM_FOLDER, trans_dir)
 
             log.info("Structures cleaned and transformed for Segment {} of {}".format(str(segment), acc))
 
@@ -2235,7 +2248,38 @@ if __name__ == '__main__': ### command to run form command line: python3.6 frags
 
             print(cluster_id_dict)
 
-            chimera_atom_specs = get_chimera_data(cluster_id_dict)
+            cluster_id_dict_new = {}
+            for k, v in cluster_id_dict.items():
+                pdb_id, lig_name, new_auth_asym_id, lig_resnum = k.split("_")
+                chain_remapping_df = load_pickle(os.path.join(CHAIN_REMAPPING_FOLDER, "{}_bio_chain_remapping.pkl".format("8a4y")))
+                chain_remapping_dict = dict(zip(chain_remapping_df["new_auth_asym_id"], chain_remapping_df["orig_label_asym_id"]))
+                new_k = "_".join([pdb_id, lig_name, chain_remapping_dict[new_auth_asym_id], lig_resnum])
+                cluster_id_dict_new[new_k] = v # in here, we will re-write k-v pairs when different ligands are mapped back to same orig chain (they should hace same BS ID)
+
+            print(cluster_id_dict_new)
+
+            lig2chain_cif = {}
+            for trans_file in os.listdir(trans_dir):
+                if not trans_file.endswith(".cif"):
+                    continue
+                pdb_id = os.path.splitext(trans_file)[0].split("_")[0]
+                print(pdb_id)
+                trans_cif_file = os.path.join(trans_dir, trans_file)
+                cif_df = PDBXreader(inputfile = trans_cif_file).atoms(format_type = "mmcif", excluded=())
+                cif_df["pdb_id"] = pdb_id
+                ligs_df = cif_df.query(
+                    'group_PDB == "HETATM" & label_comp_id != "HOH"'
+                ).drop_duplicates(
+                    ["label_comp_id", "label_asym_id", "label_seq_id"]
+                ).reset_index(
+                    drop = True
+                )[["pdb_id", "label_comp_id", "label_asym_id", "auth_asym_id", "auth_seq_id"]]
+                
+                for _, row in ligs_df.iterrows():
+                    nk = "{}_{}_{}_{}".format(row.pdb_id, row.label_comp_id, row.label_asym_id, row.auth_seq_id)
+                    lig2chain_cif[nk] = trans_file
+
+            chimera_atom_specs = get_chimera_data(cluster_id_dict_new, lig2chain_cif)
 
             attr_out = os.path.join(results_dir, "{}_{}_{}_{}_{}_{}.attr".format(acc, str(segment), experimental_methods, str(resolution), lig_clust_method, lig_clust_dist))
             

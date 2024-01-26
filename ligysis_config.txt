@@ -20,7 +20,7 @@ swissprot = /cluster/gjb_lab/2394007/data/all_species/swissprot_15_09_2023_NR.fa
 
 [formats]
 MSA_fmt = stockholm
-struc_fmt = mmcif
+struc_fmt = cif
 
 [other]
 experimental_methods = ALL
