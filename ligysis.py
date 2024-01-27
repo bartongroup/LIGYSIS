@@ -95,10 +95,12 @@ aas_1l= [
     "-"
 ]
 
-chimera_cmd_args = [
-    "ksdssp", "background solid white", "~dis",
-    "sel ~@/color=white", "dis sel", "namesel lois",
-    "~sel"
+chimeraX_commands = [
+    "color white; set bgColor white",
+    "set silhouette ON; set silhouetteWidth 3; set silhouetteColor black",
+    "color byattribute binding_site; col ::binding_site==-1 grey",
+    "~disp; select ~protein; ~select : HOH; ~select ::binding_site==-1; disp sel; ~sel",
+    "surf; surface color white; transparency 0 s;"
 ]
 
 exp_data_cols = [
@@ -356,38 +358,6 @@ def pdb_transform(pdb_path, output_path, matrix_raw, chain_id, fmt = struc_fmt):
 
     apply_transformation(structure, matrix_rf, output_path, chain_id, fmt) # by default has to be AUTH_ASYM_ID
 
-# def transform_all_files(cif_files, matrices, chains, raw_dir, clean_dir, trans_dir):
-    # """
-    # Given a set of CIF files, matrices, and chains, uncompresses, cleans and transforms
-    # the coordinates according to a transformation matrix
-    # """
-    # for i, pdb_in in enumerate(pdb_files):
-    #     pdb_root, _ = os.path.splitext(os.path.splitext(os.path.basename(pdb_in))[0])
-    #     pdb_out = os.path.join(raw_dir, pdb_root[3:] + ".pdb")
-    #     pdb_id = os.path.basename(pdb_in)[3:7]
-    #     if os.path.isfile(pdb_out):
-    #         pass
-    #     else:
-    #         with gzip.open(pdb_in, "rb") as f_in:
-    #             with open(pdb_out, "wb") as f_out:
-    #                 shutil.copyfileobj(f_in, f_out)
-    #     file_clean_from = os.path.join(raw_dir, pdb_root[3:] + ".clean.pdb")
-    #     file_clean_to = os.path.join(clean_dir, pdb_root[3:] + ".clean.pdb")
-    #     if os.path.isfile(file_clean_to):
-    #         pass
-    #     else:
-    #         run_clean_pdb(pdb_out)
-    #         os.remove(os.path.join(raw_dir, pdb_root[3:] + ".pdb" + ".breaks"))
-    #         os.remove(os.path.join(raw_dir, pdb_root[3:] + ".pdb" + ".break_residues"))
-    #         shutil.move(file_clean_from, file_clean_to)
-    #         log.info("{} cleaned".format(pdb_id))
-    #     transformed_out = os.path.join(trans_dir, pdb_root[3:] + "_{}_trans.pdb".format(chains[i]))
-    #     if os.path.isfile(transformed_out):
-    #         pass
-    #     else:
-    #         pdb_transform(file_clean_to, transformed_out, matrices[i], chains[i])
-    #         log.info("{}_{} transformed".format(pdb_id, chains[i]))
-
 def transform_all_files(pdb_ids, matrices, struct_chains, auth_chains, asymmetric_dir, trans_dir):
     """
     Given a set of PDB IDs, matrices, and chains, transforms
@@ -504,6 +474,7 @@ def download_and_move_files(pdb_ids, asymmetric_dir, bio = False):
     Downloads CIF of a series of PDB IDs and moves
     them to a given directory.
     """
+    cifs = []
     for pdb_id in pdb_ids:
         if bio:
             cif_in = os.path.join(cfg.db_root, cfg.db_pdbx, "{}_bio.cif".format(pdb_id))
@@ -513,10 +484,11 @@ def download_and_move_files(pdb_ids, asymmetric_dir, bio = False):
             cif_out = os.path.join(asymmetric_dir, "{}.cif".format(pdb_id))
         if os.path.isfile(cif_out):
             log.debug("{} already exists!".format(cif_out))
-            continue
         else:
             download_structure_from_pdbe(pdb_id, bio = bio)
             shutil.move(cif_in, cif_out)
+        cifs.append(cif_out)
+    return cifs
 
 def get_SIFTS_from_CIF(cif_df, pdb_id):
     """
@@ -526,8 +498,9 @@ def get_SIFTS_from_CIF(cif_df, pdb_id):
     df_chains = sorted(cif_df.label_asym_id.unique().tolist())
     pdb2up = {pdb_id: {}}
     up2pdb = {pdb_id: {}}
+    chain2acc = {}
     for chain in df_chains:
-        df_chain = cif_df.query('label_asym_id == @chain & group_PDB == "ATOM"').copy()
+        df_chain = cif_df.query('label_asym_id == @chain & group_PDB == "ATOM" & pdbx_sifts_xref_db_acc != "?"').copy()
         if df_chain.empty:
             log.warning("No atoms in chain {} of {}".format(chain, pdb_id))
         else:
@@ -539,32 +512,35 @@ def get_SIFTS_from_CIF(cif_df, pdb_id):
             pdb2up[pdb_id][chain] = df_filt.set_index('auth_seq_id')['pdbx_sifts_xref_db_num'].to_dict()
 
             up2pdb[pdb_id][chain] = df_filt.set_index('pdbx_sifts_xref_db_num')['auth_seq_id'].to_dict()
+
+            up_accs_4_chain = df_filt.pdbx_sifts_xref_db_acc.unique().tolist()
+
+            try:
+                assert len(up_accs_4_chain) == 1
+            except AssertionError:
+                log.warning("More than one UniProt accession for chain {} of {}".format(chain, pdb_id))
             
-            chain2acc_rows = df_filt.drop_duplicates(["label_asym_id", "pdbx_sifts_xref_db_acc"])
-            
-            chain2acc = dict(zip(chain2acc_rows['label_asym_id'], chain2acc_rows['pdbx_sifts_xref_db_acc'])) # dict from orig_label_asym_id to UniProt accession
+            chain2acc[chain] = up_accs_4_chain[0]# dict from orig_label_asym_id to UniProt accession
             
     return pdb2up, up2pdb, chain2acc
 
-def get_loi_data_from_assembly(cif_dir, biolip_dict, acc):
+def get_loi_data_from_assembly(assembly_files, biolip_dict, acc):
     """
     Returns LOI name, chain ID, and ResNum of all LOI
     molecules for a given list of CIF files and a biolip
     dict.
     """
     ligs_dict = {}
-    for cif_name in os.listdir(cif_dir):
-        if cif_name.endswith(".cif"):
-            cif_in = os.path.join(cif_dir, cif_name)
-            cif_id = cif_name.split("_")[0]
-            ligs_dict[cif_id] = {}
-            lig_names = biolip_dict[acc][cif_id]
-            cif_df = PDBXreader(inputfile = cif_in).atoms(format_type = "mmcif", excluded=())
-            for lig in lig_names:
-                cif_df.auth_seq_id = cif_df.auth_seq_id.astype(int)
-                lig_rows = cif_df.query('label_comp_id == @lig').copy().drop_duplicates(["auth_comp_id", "auth_asym_id","auth_seq_id"])
-                lig_data = list(lig_rows[["auth_comp_id","auth_asym_id","auth_seq_id"]].itertuples(index=False, name=None))
-                ligs_dict[cif_id] = lig_data
+    for assembly in assembly_files:
+        cif_id = os.path.basename(assembly).split("_")[0]
+        ligs_dict[cif_id] = {}
+        lig_names = biolip_dict[acc][cif_id]
+        cif_df = PDBXreader(inputfile = assembly).atoms(format_type = "mmcif", excluded=())
+        for lig in lig_names:
+            cif_df.auth_seq_id = cif_df.auth_seq_id.astype(int)
+            lig_rows = cif_df.query('label_comp_id == @lig').copy().drop_duplicates(["auth_comp_id", "auth_asym_id","auth_seq_id"])
+            lig_data = list(lig_rows[["auth_comp_id","auth_asym_id","auth_seq_id"]].itertuples(index=False, name=None))
+            ligs_dict[cif_id] = lig_data
     return ligs_dict
 
 def extract_assembly_metadata(assembly_path, section_name):
@@ -677,13 +653,20 @@ def process_arpeggio_df(arp_df, ligs_dict, pdb_id, ligand_names, chain_remap_dic
     # Add original label_asym_id from asymmetric unit
     switched_df["UniProt_acc_end"] = switched_df.orig_label_asym_id_end.map(chain2acc)
 
+    #print(len(switched_df))
+    #print(switched_df.UniProt_acc_end.tolist())
     prot_acc_inters = switched_df.query('UniProt_acc_end == @acc').copy() # filtering out non-POI interactions
+
+   #print(chain2acc)
+
+    #print(len(prot_acc_inters))
 
     segment_inters = prot_acc_inters.query('@segment_start <= UniProt_ResNum_end <= @segment_end').copy() # filtering out non-segment interactions
     
     segment_inters = segment_inters.sort_values(by=["auth_asym_id_end", "UniProt_ResNum_end", "auth_atom_id_end"]).reset_index(drop = True)
     
     return segment_inters
+
 
 def generate_dictionary(mmcif_file):
     """
@@ -730,7 +713,7 @@ def determine_color(interactions):
         colors = [interaction_to_color[interaction] for interaction in interactions if interaction in interaction_to_color and interaction not in undef]
         return colors[0] if colors else None  # Return the first color found, or None if no match
     
-def get_arpeggio_fingerprints(pdb_ids, assembly_cif_dir, asymmetric_dir, arpeggio_dir, chain_remapping_dir, cif_sifts_dir, ligs_dict, override = False):
+def get_arpeggio_fingerprints(pdb_ids, assembly_cif_dir, asymmetric_dir, arpeggio_dir, chain_remapping_dir, cif_sifts_dir, ligs_dict, acc, segment_start, segment_end, override = False):
     """
     Given a series of PDB IDs, runs Arpeggion on the preferred assemblies
     of those IDs, also gathers chain remapping data, in order to do some
@@ -1210,33 +1193,63 @@ def get_chimera_data(cluster_id_dict, lig2chain_cif): # cluster_id_dict is now t
         chimera_atom_specs.append(chimera_atom_spec)
     return chimera_atom_specs
 
-def write_chimera_attr(attr_out, chimera_atom_specs, cluster_ids):
+# def write_chimera_attr(attr_out, chimera_atom_specs, cluster_ids):
+#     """
+#     Writes chimera attribute file, which indicates in which cluster
+#     each ligand is found, and assigns it a colour.
+#     """
+#     with open(attr_out, "w") as out:
+#         out.write("attribute: binding_site\n")
+#         out.write("match mode: 1-to-1\n")
+#         out.write("recipient: residues\n")
+#         for i in range(len(cluster_ids)):
+#             out.write("\t" + chimera_atom_specs[i] + "\t" + str(cluster_ids[i]) + "\n")
+#     return
+
+def write_chimeraX_attr(cluster_id_dict, lig2chain_cif, trans_dir, attr_out): # cluster_id_dict is now the new one with orig_label_asym_id
     """
-    Writes chimera attribute file, which indicates in which cluster
-    each ligand is found, and assigns it a colour.
+    Gets chimeraX atom specs, binding site ids, and paths
+    to pdb files to generate the attribute files later, and
+    eventually colour models. 
     """
+    trans_files = [f for f in os.listdir(trans_dir) if f.endswith(".cif")]
+    order_dict = {k : i+1 for i, k in enumerate(trans_files)}
+
+    
+    defattr_lines = []
+
+    #for k, v in cluster_id_dict.items():
+    for k, v in lig2chain_cif.items():
+
+        ld = k.split("_") # stands for lig data
+
+        pdb_id, lig_resname, lig_chain_id, lig_resnum  = [ld[0], ld[1], ld[2], ld[3]] # not sure why sometimes chain ID is A_1, and sometimes just A. Q9UKK9, 5qjj.
+
+        if k in cluster_id_dict:
+            defattr_line = "\t#{}/{}:{}\t{}\n\n".format(order_dict[v], lig_chain_id, lig_resnum, cluster_id_dict[k])
+        else:
+            defattr_line = "\t#{}/{}:{}\t{}\n\n".format(order_dict[v], lig_chain_id, lig_resnum, "-1")
+        defattr_lines.append(defattr_line)
+        
     with open(attr_out, "w") as out:
-        out.write("attribute: binding_site\n")
-        out.write("match mode: 1-to-1\n")
-        out.write("recipient: residues\n")
-        for i in range(len(cluster_ids)):
-            out.write("\t" + chimera_atom_specs[i] + "\t" + str(cluster_ids[i]) + "\n")
-    return
+        out.write("attribute: binding_site\n\n")
+        out.write("match mode: 1-to-1\n\n")
+        out.write("recipient: residues\n\n")
+        for i in sorted(defattr_lines):
+            out.write(i)
+    return 
 
-def write_chimera_command(chimera_script_out, cmds, cluster_ids, sample_colors):
-    """
-    Writes chimera command file, which colours all models according
-    to the attribute file.
-    """
+def write_chimeraX_script(chimera_script_out, trans_dir, attr_out, chimeraX_commands):
+    trans_files = [f for f in os.listdir(trans_dir) if f.endswith(".cif")]
     with open(chimera_script_out, "w") as out:
-        out.write("# neutral colour for everything not assigned a cluster\n")
-        out.write("colour white\n")
-
-        out.write("# colour each binding site\n")
-        for i in range(0, len(sorted(list(set(cluster_ids))))):
-            out.write("colour {} :/binding_site=={}\n".format(",".join(list(map(str, list(sample_colors[i])))), i))
-        out.write("### SOME FORMATTING ###\n")
-        out.write("\n".join(cmds))
+        out.write("# opening files\n\n")
+        for f in trans_files:
+            out.write("open {}\n\n".format(f))
+        out.write("# opening attribute file\n\n")
+        out.write("open {}\n\n".format(attr_out))
+        out.write("# colouring and formatting for visualisation\n\n")
+        for cmxcmd in chimeraX_commands:
+            out.write("{}\n\n".format(cmxcmd))
     return
 
 ## CLUSTER ANALYSIS UTILS
@@ -1890,22 +1903,20 @@ if __name__ == '__main__': ### command to run form command line: python3.6 frags
             ### CREATES SEGMENT DIRECTORY, AND SUBDIRECTORIES
 
             segment_dir = os.path.join(wd, str(segment))
-            #raw_dir = os.path.join(segment_dir, "raw")
-            #clean_dir = os.path.join(segment_dir, "clean")
             trans_dir = os.path.join(segment_dir, "trans")
             simple_dir = os.path.join(segment_dir, "simple")
-            #fps_dir = os.path.join(segment_dir, "fingerprints")
             arpeggio_dir = os.path.join(segment_dir, "arpeggio")
             dssp_dir = os.path.join(segment_dir, "dssp")
             variants_dir = os.path.join(segment_dir, "variants")
             results_dir = os.path.join(segment_dir, "results")
 
             dirs = [
-                segment_dir, #raw_dir, clean_dir,
+                segment_dir,
                 trans_dir,
-                simple_dir, #fps_dir,
+                simple_dir,
                 dssp_dir,
-                variants_dir, results_dir,
+                variants_dir,
+                results_dir,
             ]
             
             for dirr in dirs:
@@ -1932,7 +1943,7 @@ if __name__ == '__main__': ### command to run form command line: python3.6 frags
 
             log.info("Segment {} of {} presents {} chains".format(str(segment), acc, str(len(segment_df))))
 
-            pdb_ids = segment_df.pdb_id.tolist()
+            pdb_ids = segment_df.pdb_id.tolist() # this has to be redundadnt, otherwise won't match number of matrices, etc (multiple chains per pdb_id)
 
             pdb_ids = [pdb_id for pdb_id in pdb_ids if pdb_id in all_ligs_pdbs] # filters out pdb_ids that do not present BioLiP-defined LOIs
 
@@ -1941,18 +1952,14 @@ if __name__ == '__main__': ### command to run form command line: python3.6 frags
                 log.warning("Segment {} of {} does not present any ligand-binding structures".format(str(segment), acc))
                 continue
 
-            #pdb_files = [os.path.join(pdb_db_path, pdb_id[1:3], "pdb{}.ent.gz".format(pdb_id)) for pdb_id in pdb_ids] ### 2REMOVE (MOVING AWAY) used for superposition
-
-            #cif_files = [os.path.join(cif_assembly_db_path, pdb_id[1:3], "{}-assembly1.cif.gz".format(pdb_id)) for pdb_id in pdb_ids] # used to run Arpeggio. Assuming 1 is the preferred (Not always true)
-
             ### GETTING EXPERIMENTAL DATA FROM ALL STRUCTURES
 
             experimental_out = os.path.join(results_dir, "{}_{}_{}_{}_strs_exp.pkl".format(acc, str(segment), experimental_methods, str(resolution)))
 
-            #print(pdb_ids)
+            unique_pdbs = list(set(pdb_ids)) # this is to avoid querying the same pdb multiple times
 
             if override or not os.path.isfile(experimental_out):
-                exp_data_df = get_experimental_data(pdb_ids, EXP_FOLDER, experimental_out)
+                exp_data_df = get_experimental_data(unique_pdbs, EXP_FOLDER, experimental_out)
                 log.info("Obtained experimental data")
             else:
                 
@@ -1960,25 +1967,6 @@ if __name__ == '__main__': ### command to run form command line: python3.6 frags
                 log.debug("Loaded experimental data")
                 pass
             log.info("Experimental data processed for Segment {} of {}".format(str(segment), acc))
-
-            ### FILTERS OUT PDB IDS, AND FILES THAT ARE NOT FOUND IN LOCAL DATABASE
-
-            # files2remove, ids2remove = [[], []]
-            # for i, cif_file in enumerate(cif_files):
-            #     try:
-            #         assert os.path.isfile(cif_file)
-            #     except AssertionError as e:
-            #         log.error("{} was not found in local database".format(pdb_ids[i]))
-            #         files2remove.append(cif_file) # saving pdbs not in database so they are removed later. removing whilst for loop is not a good idea
-            #         ids2remove.append(pdb_ids[i])
-                    
-            # pdb_ids = [pdb_id for pdb_id in pdb_ids if pdb_id not in ids2remove]
-            # cif_files = [cif_file for cif_file in cif_files if cif_file not in files2remove]
-
-            # if len(cif_files) == 0:
-            #     log.error("None of the mmCIF assembly structures for Segment {} of {} are present in local database".format(str(segment), acc)) #this is actually a segment EC
-            #     print("{}\t{}".format(seg_id, str(2)), flush = True)
-            #     continue
 
             ### NEW FROM 07/2023 FILTERS OUT PDB IDS THAT DO NOT MEET CRITERION: @experimental_methods AND @resolution
 
@@ -2010,31 +1998,23 @@ if __name__ == '__main__': ### command to run form command line: python3.6 frags
                     print("{}\t{}".format(seg_id, str(4)), flush = True)
                     continue
 
-                #files2remove, ids2remove = [[], []] # now because of exp method and resolution
                 ids2remove = [] # now because of exp method and resolution
                 for i, pdb_id in enumerate(pdb_ids):
                     if pdb_id not in good_pdbs:
                         log.warning("{} did not meet quality standards".format(pdb_id))
-                        #files2remove.append(cif_files[i]) # saving pdbs not meeting QC so they are removed later. removing whilst for loop is not a good idea
                         ids2remove.append(pdb_id)
 
                 pdb_ids = [pdb_id for pdb_id in pdb_ids if pdb_id not in ids2remove] # now only desired experimental method and resolution are kept
-                #cif_files = [cif_file for cif_file in cif_files if cif_file not in files2remove] # now only desired experimental method and resolution are kept
+                
+            unique_pdbs = list(set(pdb_ids)) # this is to avoid querying the same pdb multiple times
 
-            log.info("Segment {} of {} presents {} high quality structures".format(str(segment), acc, str(len(pdb_ids))))
+            log.info("Segment {} of {} presents {} high quality structures".format(str(segment), acc, str(len(unique_pdbs))))
             
-            ### CHECKING AMOUNT OF PDB FILES AND PDB IDS ARE THE SAME
-
-            # try:
-            #     assert len(pdb_ids) == len(cif_files)
-            # except AssertionError as e:
-            #     log.critical("Number of pdb ids ({}) not equal to CIF files ({}) for Segment {} of {}".format(str(len(pdb_ids)), str(len(cif_files)), str(segment), acc))
 
             segment_df = segment_df.query('pdb_id in @pdb_ids') # filtering segment dataframe, so it only includes transformation data of those tructures present in local copy of PDB
             matrices = segment_df.matrix.tolist()
             struct_chains = segment_df.struct_asym_id.tolist() # this is the same as orig_label_asym_id
             auth_chains = segment_df.auth_asym_id.tolist() # this is the same as orig_auth_asym_id
-
 
             ### CHECKING PDB IDS AGREE WITH SEGMENT DF PDB IDS
 
@@ -2044,44 +2024,21 @@ if __name__ == '__main__': ### command to run form command line: python3.6 frags
                 log.critical("Filtered PDBs do not agree with those from Segment dataframe for Segment {} of {}".format(str(segment), acc))
                 continue
 
-            # try:
-            #     assert segment_df.pdb_id.tolist() == [cif_file.split("/")[-1][:4] for cif_file in cif_files]
-            #     # assert segment_df.pdb_id.tolist() == [pdb_file.split("/")[-1][3:7] for pdb_file in pdb_files]
-            # except AssertionError as e:
-            #     log.critical("PDB file IDs do not agree with those from Segment dataframe for Segment {} of {}".format(str(segment), acc))
-            #     continue 
-
             ### OBTAINING PROTEIN-LIGAND FINGERPRINTS
 
             fps_out = os.path.join(results_dir, "{}_{}_{}_{}_ligs_fingerprints.pkl".format(acc, str(segment), experimental_methods, str(resolution))) #fps: will stand for fingerprints. update with main_dir and so on.
-            #pdb_set = segment_df.pdb_id.unique().tolist()
-            #log.info("There are {} unique PDBs for Segment {} of {}".format(str(len(pdb_set)), str(segment), acc))
-            #all_ligs_pdbs_segment = [pdb for pdb in all_ligs_pdbs if pdb in pdb_set] # filtering pdbs so only data about segment is retrieved. Think it is unnecessary, but OK.
-            #try:
-            #    assert set(pdb_set) == set(all_ligs_pdbs_segment)
-            #    #log.info("ASSERTION CORRECT: PDBs in segment had already been filtered by BioLiP")
-            #except AssertionError as e:
-            #    log.critical("PDB IDs do not match for Segment {} of {}".format(str(segment), acc))
-            #    continue 
-
-            #log.info("There are {} unique ligand-binding PDBs for Segment {} of {}".format(str(len(all_ligs_pdbs_segment)), str(segment), acc))
-
 
             ######################### NEW FROM 22/01/2024 RESTRUCTURE: USING ARPEGGIO #########################
 
-            download_and_move_files(pdb_ids, ASSEMBLY_FOLDER, bio = True) # fetching assembly from API using ProIntVar
+            assembly_files = download_and_move_files(unique_pdbs, ASSEMBLY_FOLDER, bio = True) # fetching assembly from API using ProIntVar
 
-            ligs_dict = get_loi_data_from_assembly(ASSEMBLY_FOLDER, biolip_dict, acc)
+            ligs_dict = get_loi_data_from_assembly(assembly_files, biolip_dict, acc)
 
-            download_and_move_files(pdb_ids, ASYM_FOLDER) # fetching updated CIF from API using ProIntVar. These are actually the ones we want for superposition, so all good.
+            asym_files = download_and_move_files(unique_pdbs, ASYM_FOLDER) # fetching updated CIF from API using ProIntVar. These are actually the ones we want for superposition, so all good.
 
             if override or not os.path.isfile(fps_out):
-                # if all_ligs_pdbs_segment == []:
-                #     print("{}\t{}".format(seg_id, str(5)), flush = True)
-                #     log.warning("Segment {} of {} does not present any ligand-binding structures".format(str(segment), acc))
-                #     continue
-                #else:
-                lig_fps = get_arpeggio_fingerprints(pdb_ids, ASSEMBLY_FOLDER, ASYM_FOLDER, arpeggio_dir, CHAIN_REMAPPING_FOLDER, CIF_SIFTS_FOLDER, ligs_dict) ### TODO IF WANTED: IMPLEMENT ONLY-SIDECHAIN INTERACTIONS ###
+
+                lig_fps = get_arpeggio_fingerprints(unique_pdbs, ASSEMBLY_FOLDER, ASYM_FOLDER, arpeggio_dir, CHAIN_REMAPPING_FOLDER, CIF_SIFTS_FOLDER, ligs_dict, acc, segment_start, segment_end) ### TODO IF WANTED: IMPLEMENT ONLY-SIDECHAIN INTERACTIONS ###
                     #lig_fps = get_fingerprints_dict(acc, fps_dir, fps_out, all_ligs_pdbs_segment, segment_chains[segment], MOLS_FOLDER, INTERS_FOLDER) # GETS ALL LIGAND FINGERPRINTS FROM LIG-BOUND CONTAINING PDBS
             else:
                 with open(fps_out, "rb") as f:
@@ -2089,17 +2046,6 @@ if __name__ == '__main__': ### command to run form command line: python3.6 frags
 
 
             ######################### NEW FROM 22/01/2024 RESTRUCTURE: USING ARPEGGIO #########################
-
-            # if override or not os.path.isfile(fps_out):
-            #     if all_ligs_pdbs_segment == []:
-            #         print("{}\t{}".format(seg_id, str(5)), flush = True)
-            #         log.warning("Segment {} of {} does not present any ligand-binding structures".format(str(segment), acc))
-            #         continue
-            #     else:
-            #         lig_fps = get_fingerprints_dict(acc, fps_dir, fps_out, all_ligs_pdbs_segment, segment_chains[segment], MOLS_FOLDER, INTERS_FOLDER) # GETS ALL LIGAND FINGERPRINTS FROM LIG-BOUND CONTAINING PDBS
-            # else:
-            #     with open(fps_out, "rb") as f:
-            #         lig_fps = pickle.load(f) # stands for ligand fingerprints
 
             ### CHECKING THAT THERE ARE FINGERPRINTS. THERE SHOULD ALWAYS BE AT THIS POINT.
 
@@ -2117,70 +2063,7 @@ if __name__ == '__main__': ### command to run form command line: python3.6 frags
                 log.warning("None of the ligands in Segment {} of {} interact with any of the target chains".format(str(segment), acc))
                 continue
 
-            ### FILTER OUT NON-LOIS 
-
-            # lig_fps_filt1 = filter_non_relevant_ligs(lig_fps, biolip_dict[acc]) # FILTERS OUT NON-LOIs INTERACTIONS. THIS IS WHERE WE WOULD CHECK FOR LIGAND SIZE AS WELL.
-
-            # n_relevant_ligs = sum([len(rel_ligs) for rel_ligs in lig_fps_filt1.values()])
-
-            # if n_relevant_ligs == 0: #there are ligands bound, but they are all non-relevant, across all ligands bound in all structures for a segment
-            #     print("{}\t{}".format(seg_id, str(8)), flush = True)
-            #     log.warning("All ligands in Segment {} of {} are not relevant".format(str(segment), acc))
-            #     continue
-
-            ### FILTER OUT NON-PROTEIN INTERACTIONS
-
-            # lig_fps_filt2 = filter_non_protein_inters(lig_fps_filt1, acc, pdb_resnames) # FILTERS OUT NON-PROTEIN INTERACTIONS
-
-            # n_protein_inters = sum([len(inters) for rel_ligs in lig_fps_filt2.values() for inters in rel_ligs.values()]) # number of protein-RELEVANT ligands interactions for all structures in a segment
-
-            # if n_protein_inters == 0: #there are ligands bound, but they are all non-relevant, across all ligands bound in all structures for a segment
-            #     print("{}\t{}".format(seg_id, str(9)), flush = True)
-            #     log.warning("None of the ligand interactions in Segment {} of {} involve target protein atoms".format(str(segment), acc))
-            #     continue
-
             log.info("Ligand fingerprints obtained for Segment {} of {}".format(str(segment), acc))
-
-            ### GETTING PDB-UNIPROT SIFTS MAPPING
-
-            # sifts_out = os.path.join(results_dir, "{}_{}_{}_{}_strs_sifts.pkl".format(acc, str(segment), experimental_methods, str(resolution)))
-
-            # if override or not os.path.isfile(sifts_out):
-            #     sifts_mapping = {}
-            #     for pdb_id in all_ligs_pdbs_segment: # before it was just pdb_ids, so no information would be retrieved of those with no structure in local PDB copy
-            #         sifts_mapping[pdb_id] = get_mapping_from_sifts(pdb_id)
-            #     with open(sifts_out, "wb") as f:
-            #         pickle.dump(sifts_mapping, f)
-            #     log.info("Obtained SIFTS mappings table")
-            # else:
-            #     with open(sifts_out, "rb") as f:
-            #         sifts_mapping = pickle.load(f)
-            #     log.info("Loaded SIFTS mappings table")
-
-            # lig_fps_filt2 = {k: v for k, v in lig_fps_filt2.items() if sifts_mapping[k] != {}} #filter out those fingerprints form structures where SIFTS mapping was not retrieved
-
-            # lig_fps_filt2_sifted, lig_fps_filt2_sifted_v2 = get_up_mapping_from_prointvar(lig_fps_filt2, sifts_mapping)
-
-            # ### FILTERING OUT FINGERPRINTS THAT ARE EMPTY DUE TO LACK OF SIFTS MAPPING ###
-
-            # for k1, v1 in lig_fps_filt2_sifted_v2.items():
-            #     if v1 == []:
-            #         log.warning("{} resulted in an empty fingerprint".format(k1))
-            #     else:
-            #         pass
-            # lig_fps_filt2_sifted_v2 = {k: v for k, v in lig_fps_filt2_sifted_v2.items() if v != []} # removes empty fingerprints from dict
-
-            # lig_fps_filt2_sifted = {k1: {k2: v2 for k2, v2 in v1.items() if v2 != []} for k1, v1 in lig_fps_filt2_sifted.items()} # removes empty fingerprints from dict
-            # lig_fps_filt2_sifted = {k: v for k, v in lig_fps_filt2_sifted.items() if v != {}} # removes pdb entries from dict if no fingerprints remain in dict
-            
-            # it could be that none of the fingerprints have SIFTS mappings, and therefore dictionaries are empty
-
-            # if lig_fps_filt2_sifted == {}:
-            #     print("{}\t{}".format(seg_id, str(10)), flush = True)
-            #     log.warning("No relevant fingerprints present SIFTS mapping for Segment {} of {}".format(str(segment), acc))
-            #     continue
-
-            ### DONE ###
 
             log.info("PDB-UniProt mappings performed for Segment {} of {}".format(str(segment), acc))
 
@@ -2222,7 +2105,7 @@ if __name__ == '__main__': ### command to run form command line: python3.6 frags
 
             ### TREE VISUALISATION AND COLOURING SECTION ###
 
-            bs_colors = list(itertools.islice(rgbs(), 300)) # new_colours
+            # bs_colors = list(itertools.islice(rgbs(), 300)) # new_colours
 
             ### TODO ###
 
@@ -2230,9 +2113,7 @@ if __name__ == '__main__': ### command to run form command line: python3.6 frags
 
             ### TRANSFORMATION OF PROTEIN-LIGAND INTERACTIONS CONTAINING PDBs
 
-            asym_cif_files = [os.path.join(ASYM_FOLDER, "{}.cif") for pdb_id in pdb_ids] # using asymmetric unit just for superposition
-
-            # transform_all_files(asym_cif_files, matrices, chains, raw_dir, clean_dir, trans_dir) # I think we lose all ligands here that are on independent chains. This is because they don't have a matrix (no backbone)
+            asym_cif_files = [os.path.join(ASYM_FOLDER, "{}.cif") for pdb_id in unique_pdbs] # using asymmetric unit just for superposition
 
             transform_all_files(pdb_ids, matrices, struct_chains, auth_chains, ASYM_FOLDER, trans_dir)
 
@@ -2246,56 +2127,53 @@ if __name__ == '__main__': ### command to run form command line: python3.6 frags
 
             ### CHIMERA COLOURING SCRIPT AND ATTRIBUTE WRITING
 
-            print(cluster_id_dict)
-
             cluster_id_dict_new = {}
             for k, v in cluster_id_dict.items():
                 pdb_id, lig_name, new_auth_asym_id, lig_resnum = k.split("_")
-                chain_remapping_df = load_pickle(os.path.join(CHAIN_REMAPPING_FOLDER, "{}_bio_chain_remapping.pkl".format("8a4y")))
-                chain_remapping_dict = dict(zip(chain_remapping_df["new_auth_asym_id"], chain_remapping_df["orig_label_asym_id"]))
+                chain_remapping_df = load_pickle(os.path.join(CHAIN_REMAPPING_FOLDER, "{}_bio_chain_remapping.pkl".format(pdb_id)))
+                chain_remapping_dict = dict(zip(chain_remapping_df["new_auth_asym_id"], chain_remapping_df["orig_auth_asym_id"])) # this is what ChimeraX uses.
                 new_k = "_".join([pdb_id, lig_name, chain_remapping_dict[new_auth_asym_id], lig_resnum])
                 cluster_id_dict_new[new_k] = v # in here, we will re-write k-v pairs when different ligands are mapped back to same orig chain (they should hace same BS ID)
 
-            print(cluster_id_dict_new)
+            
 
             lig2chain_cif = {}
-            for trans_file in os.listdir(trans_dir):
+            for trans_file in os.listdir(trans_dir): # this needs to be whole ASYM units. ACTUALLY NO.
                 if not trans_file.endswith(".cif"):
                     continue
                 pdb_id = os.path.splitext(trans_file)[0].split("_")[0]
-                print(pdb_id)
                 trans_cif_file = os.path.join(trans_dir, trans_file)
                 cif_df = PDBXreader(inputfile = trans_cif_file).atoms(format_type = "mmcif", excluded=())
                 cif_df["pdb_id"] = pdb_id
                 ligs_df = cif_df.query(
-                    'group_PDB == "HETATM" & label_comp_id != "HOH"'
+                    'group_PDB == "HETATM"'
+                ).query(
+                    'label_comp_id != "HOH"'
                 ).drop_duplicates(
-                    ["label_comp_id", "label_asym_id", "label_seq_id"]
+                    ["label_comp_id", "auth_asym_id", "label_asym_id", "auth_seq_id"]
                 ).reset_index(
                     drop = True
                 )[["pdb_id", "label_comp_id", "label_asym_id", "auth_asym_id", "auth_seq_id"]]
                 
                 for _, row in ligs_df.iterrows():
-                    nk = "{}_{}_{}_{}".format(row.pdb_id, row.label_comp_id, row.label_asym_id, row.auth_seq_id)
+                    nk = "{}_{}_{}_{}".format(row.pdb_id, row.label_comp_id, row.auth_asym_id, row.auth_seq_id) # this has to be auth_asym_id to match with cluster_id_dict_new and ChimeraX
                     lig2chain_cif[nk] = trans_file
 
-            chimera_atom_specs = get_chimera_data(cluster_id_dict_new, lig2chain_cif)
+            attr_out = os.path.join(results_dir, "{}_{}_{}_{}_{}_{}.defattr".format(acc, str(segment), experimental_methods, str(resolution), lig_clust_method, lig_clust_dist))
 
-            attr_out = os.path.join(results_dir, "{}_{}_{}_{}_{}_{}.attr".format(acc, str(segment), experimental_methods, str(resolution), lig_clust_method, lig_clust_dist))
-            
             if override or not os.path.isfile(attr_out):
-
-                print(cluster_ids, chimera_atom_specs)
                 
-                write_chimera_attr(attr_out, chimera_atom_specs, cluster_ids)
+               order_dict = write_chimeraX_attr(cluster_id_dict_new, lig2chain_cif, trans_dir, attr_out)
 
-            chimera_script_out = os.path.join(results_dir, "{}_{}_{}_{}_{}_{}.com".format(acc, str(segment), experimental_methods, str(resolution), lig_clust_method, lig_clust_dist))
+            chimera_script_out = os.path.join(results_dir, "{}_{}_{}_{}_{}_{}.cxc".format(acc, str(segment), experimental_methods, str(resolution), lig_clust_method, lig_clust_dist))
 
             ### IMPLEMENT CHIMERA OPENING SCRIPT: opens only those PDBs that are actually binding ligands. could be less than 50% of total chains
 
             if override or not os.path.isfile(chimera_script_out):
 
-                write_chimera_command(chimera_script_out, chimera_cmd_args, cluster_ids, bs_colors)
+                # write_chimera_command(chimera_script_out, chimera_cmd_args, cluster_ids, bs_colors)
+
+                write_chimeraX_script(chimera_script_out, trans_dir, os.path.basename(attr_out), chimeraX_commands)
 
             log.info("Chimera attributes and script generated for Segment {} of {}".format(str(segment), acc))
 
@@ -2333,7 +2211,7 @@ if __name__ == '__main__': ### command to run form command line: python3.6 frags
 
             master_dssp_out = os.path.join(results_dir, "{}_{}_{}_{}_strs_dssp.pkl".format(acc, str(segment), experimental_methods, str(resolution)))
             if override or not os.path.isfile(master_dssp_out):
-                dssp_data = get_dssp_data(pdb_ids, ASSEMBLY_FOLDER, dssp_dir, CIF_SIFTS_FOLDER, CHAIN_REMAPPING_FOLDER, master_dssp_out)
+                dssp_data = get_dssp_data(unique_pdbs, ASSEMBLY_FOLDER, dssp_dir, CIF_SIFTS_FOLDER, CHAIN_REMAPPING_FOLDER, master_dssp_out)
                 log.info("Obtained DSSP data")
             else:
                 dssp_data = pd.read_pickle(master_dssp_out)
@@ -2617,5 +2495,7 @@ if __name__ == '__main__': ### command to run form command line: python3.6 frags
 
 
 # /cluster/gjb_lab/2394007/LIGYSIS_PDB
+
+# python3.6 ./../../ligysis.py P0DTD1
 
 # python3.6 ./../../ligysis.py --transform --experimental --variants --override O55234
