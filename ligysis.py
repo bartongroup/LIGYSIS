@@ -533,14 +533,14 @@ def get_loi_data_from_assembly(assembly_files, biolip_dict, acc):
     ligs_dict = {}
     for assembly in assembly_files:
         cif_id = os.path.basename(assembly).split("_")[0]
-        ligs_dict[cif_id] = {}
+        ligs_dict[cif_id] = []
         lig_names = biolip_dict[acc][cif_id]
         cif_df = PDBXreader(inputfile = assembly).atoms(format_type = "mmcif", excluded=())
         for lig in lig_names:
             cif_df.auth_seq_id = cif_df.auth_seq_id.astype(int)
             lig_rows = cif_df.query('label_comp_id == @lig').copy().drop_duplicates(["auth_comp_id", "auth_asym_id","auth_seq_id"])
             lig_data = list(lig_rows[["auth_comp_id","auth_asym_id","auth_seq_id"]].itertuples(index=False, name=None))
-            ligs_dict[cif_id] = lig_data
+            ligs_dict[cif_id].extend(lig_data)
     return ligs_dict
 
 def extract_assembly_metadata(assembly_path, section_name):
@@ -615,7 +615,12 @@ def map_values(row, pdb2up, pdb_id):
     """
     maps UniProt ResNums from SIFTS dictionary from CIF file to Arpeggio dataframe.
     """
-    return pdb2up[pdb_id][row['orig_label_asym_id_end']][row['auth_seq_id_end']]
+    try:
+        return pdb2up[pdb_id][row['orig_label_asym_id_end']][row['auth_seq_id_end']]
+    except KeyError:
+        print("Residue {} {} has no mapping to UniProt".format(row['orig_label_asym_id_end'], row['auth_seq_id_end']))
+        return np.nan # if there is no mapping, return NaN
+        
 
 def map_values_dssp(row, pdb2up, pdb_id, remap_dict):
     """
@@ -641,8 +646,13 @@ def process_arpeggio_df(arp_df, ligs_dict, pdb_id, ligand_names, chain_remap_dic
     arp_df = arp_df.join(arp_df_bgn_expanded, lsuffix = "_end", rsuffix = "_bgn").drop(labels='bgn', axis = 1)
 
     inter_df = arp_df.query('interacting_entities == "INTER" & type == "atom-atom"').copy().reset_index(drop = True)
+    inter_df = inter_df.query('label_comp_id_bgn in @pdb_resnames or label_comp_id_end in @pdb_resnames').copy().reset_index(drop = True) # filtering out ligand-ligand interactions
 
     switched_df = switch_columns(inter_df, ligand_names)
+
+    switched_df = switched_df.query('label_comp_id_end in @pdb_resnames').copy() # filtering out non-protein-ligand interactions
+
+    print(pdb_id, ligand_names)
 
     # Add original label_asym_id from asymmetric unit
     switched_df["orig_label_asym_id_end"] = switched_df.auth_asym_id_end.map(chain_remap_dict)
@@ -731,39 +741,16 @@ def get_arpeggio_fingerprints(pdb_ids, assembly_cif_dir, asymmetric_dir, arpeggi
         
         remapping_out = os.path.join(chain_remapping_dir, basename + "_chain_remapping.pkl")
         
-        if override or not os.path.isfile(remapping_out):
-
-            chain_remap_df = extract_assembly_metadata(
-                assembly_path,
-                "_pdbe_chain_remapping"
-            )
-            chain_remap_df.to_pickle(remapping_out)
-            
-        else:
-            log.info("Loading remapping dataframe!")
-            chain_remap_df = pd.read_pickle(remapping_out)
-
-        chain_remap_dict = dict(zip(chain_remap_df["new_auth_asym_id"], chain_remap_df["orig_label_asym_id"])) # dict from new_auth_asym_id to orig_label_asym_id
-        
         input_struct = os.path.join(asymmetric_dir, "{}.cif".format(pdb_id))#os.path.join(cfg.db_root, cfg.db_pdbx, "{}.cif".format(pdb_id))
         
         pdb2up_out = os.path.join(cif_sifts_dir, "{}_pdb2up.pkl".format(pdb_id))
         up2pdb_out = os.path.join(cif_sifts_dir, "{}_up2pdb.pkl".format(pdb_id))
         chain2acc_out = os.path.join(cif_sifts_dir, "{}_chain2acc.pkl".format(pdb_id))
         
-        if override or not os.path.isfile(pdb2up_out) or not os.path.isfile(up2pdb_out) or not os.path.isfile(chain2acc_out):
-            
-            asym_cif_df = PDBXreader(inputfile = input_struct).atoms(format_type = "mmcif")
-            pdb2up, up2pdb, chain2acc = get_SIFTS_from_CIF(asym_cif_df, pdb_id)
-            dump_pickle(pdb2up, pdb2up_out)
-            dump_pickle(up2pdb, up2pdb_out)
-            dump_pickle(chain2acc, chain2acc_out)
-        
-        else:
-            log.info("Loading CIF SIFTS mapping dicts!")
-            pdb2up = load_pickle(pdb2up_out)
-            up2pdb = load_pickle(up2pdb_out)
-            chain2acc = load_pickle(chain2acc_out)
+
+        if ligs_dict[pdb_id] == []:
+            log.warning("No LOI in assembly for {}".format(pdb_id)) 
+            continue
 
         lig_sel = " ".join(["/{}/{}/".format(el[1], el[2]) for el in ligs_dict[pdb_id]])
 
@@ -781,6 +768,40 @@ def get_arpeggio_fingerprints(pdb_ids, assembly_cif_dir, asymmetric_dir, arpeggi
         arpeggio_proc_df_out = os.path.join(arpeggio_dir, basename + "_proc.pkl")
         if override or not os.path.isfile(arpeggio_proc_df_out):
 
+            if override or not os.path.isfile(remapping_out):
+
+                chain_remap_df = extract_assembly_metadata(
+                    assembly_path,
+                    "_pdbe_chain_remapping"
+                )
+                chain_remap_df.to_pickle(remapping_out)
+            
+            else:
+                log.info("Loading remapping dataframe!")
+                chain_remap_df = pd.read_pickle(remapping_out)
+
+            print(pdb_id)
+            try:
+                chain_remap_dict = dict(zip(chain_remap_df["new_auth_asym_id"], chain_remap_df["orig_label_asym_id"])) # dict from new_auth_asym_id to orig_label_asym_id
+            except KeyError:
+                log.warning("No chain remapping data for {}".format(pdb_id)) # example: 8gia. No chain remapping data, legacy CIF. Downloaded editing the URL, removing "-".
+                continue
+
+
+            if override or not os.path.isfile(pdb2up_out) or not os.path.isfile(up2pdb_out) or not os.path.isfile(chain2acc_out):
+            
+                asym_cif_df = PDBXreader(inputfile = input_struct).atoms(format_type = "mmcif")
+                pdb2up, up2pdb, chain2acc = get_SIFTS_from_CIF(asym_cif_df, pdb_id)
+                dump_pickle(pdb2up, pdb2up_out)
+                dump_pickle(up2pdb, up2pdb_out)
+                dump_pickle(chain2acc, chain2acc_out)
+        
+            else:
+                log.info("Loading CIF SIFTS mapping dicts!")
+                pdb2up = load_pickle(pdb2up_out)
+                up2pdb = load_pickle(up2pdb_out)
+                chain2acc = load_pickle(chain2acc_out)
+
             proc_inters = process_arpeggio_df(
                 arp_df, ligs_dict, pdb_id, ligand_names, chain_remap_dict,
                 pdb2up, chain2acc, acc, segment_start, segment_end
@@ -797,13 +818,18 @@ def get_arpeggio_fingerprints(pdb_ids, assembly_cif_dir, asymmetric_dir, arpeggi
         else:
             log.debug("{} already exists!".format(arpeggio_proc_df_out))
             proc_inters = pd.read_pickle(arpeggio_proc_df_out)
+
+        proc_inters_indexed = proc_inters.set_index(["label_comp_id_bgn", "auth_asym_id_bgn", "auth_seq_id_bgn"])
         
         for el in ligs_dict[pdb_id]:
-            proc_inters_indexed = proc_inters.set_index(["label_comp_id_bgn", "auth_asym_id_bgn", "auth_seq_id_bgn"])
-            lig_rows = proc_inters_indexed.loc[el, :]
-            lig_fp = lig_rows.UniProt_ResNum_end.unique().tolist()
-            lig_key = "{}_".format(pdb_id) + "_".join([str(l) for l in el])
-            fp_dict[lig_key] = lig_fp
+            try:
+                lig_rows = proc_inters_indexed.loc[el, :] # Happens for 7bf3 (all aa binding MG are artificial N-term), also for low-occuoancy ligands? e.g., 5srs, 5sq5
+                lig_fp = lig_rows.UniProt_ResNum_end.unique().tolist()
+                lig_key = "{}_".format(pdb_id) + "_".join([str(l) for l in el])
+                fp_dict[lig_key] = lig_fp
+            except:
+                log.warning("Empty fingerprint for ligand {} in {}".format(el, pdb_id))
+                continue
             
     return fp_dict
 
@@ -1193,19 +1219,6 @@ def get_chimera_data(cluster_id_dict, lig2chain_cif): # cluster_id_dict is now t
         chimera_atom_specs.append(chimera_atom_spec)
     return chimera_atom_specs
 
-# def write_chimera_attr(attr_out, chimera_atom_specs, cluster_ids):
-#     """
-#     Writes chimera attribute file, which indicates in which cluster
-#     each ligand is found, and assigns it a colour.
-#     """
-#     with open(attr_out, "w") as out:
-#         out.write("attribute: binding_site\n")
-#         out.write("match mode: 1-to-1\n")
-#         out.write("recipient: residues\n")
-#         for i in range(len(cluster_ids)):
-#             out.write("\t" + chimera_atom_specs[i] + "\t" + str(cluster_ids[i]) + "\n")
-#     return
-
 def write_chimeraX_attr(cluster_id_dict, lig2chain_cif, trans_dir, attr_out): # cluster_id_dict is now the new one with orig_label_asym_id
     """
     Gets chimeraX atom specs, binding site ids, and paths
@@ -1349,8 +1362,11 @@ def get_dssp_data(pdb_ids, assembly_dir, dssp_dir, cif_sifts_dir, chain_remappin
             continue
         assembly_root, _ = os.path.splitext(os.path.basename(assembly_path))
         dssp_df = pd.read_pickle(os.path.join(dssp_dir, assembly_root + ".pkl"))
-        
-        sifts_dict = load_pickle(os.path.join(cif_sifts_dir, "{}_pdb2up.pkl".format(pdb_id)))
+        try:
+            sifts_dict = load_pickle(os.path.join(cif_sifts_dir, "{}_pdb2up.pkl".format(pdb_id)))
+        except:
+            log.error("SIFTS mapping not found for {}".format(pdb_id)) # this happens if there is no SIFTS, could be because of legacy CIF, e.g., 8gia
+            continue
         chain_remapping_df = load_pickle(os.path.join(chain_remapping_dir, "{}_bio_chain_remapping.pkl".format(pdb_id)))
         chain_remapping_dict = dict(zip(chain_remapping_df["new_label_asym_id"], chain_remapping_df["orig_label_asym_id"]))
         
@@ -2032,7 +2048,14 @@ if __name__ == '__main__': ### command to run form command line: python3.6 frags
 
             assembly_files = download_and_move_files(unique_pdbs, ASSEMBLY_FOLDER, bio = True) # fetching assembly from API using ProIntVar
 
-            ligs_dict = get_loi_data_from_assembly(assembly_files, biolip_dict, acc)
+            ligs_dict_out = os.path.join(results_dir, "{}_{}_{}_{}_ligs_dict.pkl".format(acc, str(segment), experimental_methods, str(resolution)))
+            if override or not os.path.isfile(ligs_dict_out):
+                ligs_dict = get_loi_data_from_assembly(assembly_files, biolip_dict, acc)
+                dump_pickle(ligs_dict, ligs_dict_out)
+                log.info("Ligand data obtained")
+            else:
+                ligs_dict = load_pickle(ligs_dict_out)
+                log.info("Ligand data loaded")
 
             asym_files = download_and_move_files(unique_pdbs, ASYM_FOLDER) # fetching updated CIF from API using ProIntVar. These are actually the ones we want for superposition, so all good.
 
@@ -2040,6 +2063,7 @@ if __name__ == '__main__': ### command to run form command line: python3.6 frags
 
                 lig_fps = get_arpeggio_fingerprints(unique_pdbs, ASSEMBLY_FOLDER, ASYM_FOLDER, arpeggio_dir, CHAIN_REMAPPING_FOLDER, CIF_SIFTS_FOLDER, ligs_dict, acc, segment_start, segment_end) ### TODO IF WANTED: IMPLEMENT ONLY-SIDECHAIN INTERACTIONS ###
                     #lig_fps = get_fingerprints_dict(acc, fps_dir, fps_out, all_ligs_pdbs_segment, segment_chains[segment], MOLS_FOLDER, INTERS_FOLDER) # GETS ALL LIGAND FINGERPRINTS FROM LIG-BOUND CONTAINING PDBS
+                dump_pickle(lig_fps, fps_out)
             else:
                 with open(fps_out, "rb") as f:
                     lig_fps = pickle.load(f) # stands for ligand fingerprints
