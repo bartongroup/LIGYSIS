@@ -141,11 +141,6 @@ interaction_to_color = { # following Arpeggio's colour scheme
     'proximal': '#999999'
 }
 
-abs_freqs = {
-        "A": 0, "R": 0, "N": 0, "D": 0, "C": 0, "Q": 0, "E": 0, "G": 0, "H": 0, "I": 0,
-        "L": 0, "K": 0, "M": 0, "F": 0, "P": 0, "S": 0, "T": 0, "W": 0, "Y": 0, "V": 0, "-": 0
-    }
-
 ### FUNCTIONS
 
 ## UTILS
@@ -393,10 +388,10 @@ def get_experimental_data(pdb_ids, exp_data_dir, out):
                 log.debug("Experimental data retrieved for {}".format(pdb_id))
                 time.sleep(sleep_time)
             except HTTPError as e:
-                log.warning("Experimental data not retrieved for {}: {}".format(pdb_id, e))
+                log.error("Experimental data not retrieved for {}: {}".format(pdb_id, e))
                 continue
             except URLError as u:
-                log.warning("Experimental data not retrieved for {}: {}".format(pdb_id, u))
+                log.error("Experimental data not retrieved for {}: {}".format(pdb_id, u))
                 continue
     master_exp_data_df = pd.concat(exp_data_dfs)
     master_exp_data_df.reset_index(drop = True, inplace = True)
@@ -426,7 +421,7 @@ def get_simple_pdbs(trans_dir, simple_dir):
         cif_df = PDBXreader(inputfile = cif_in).atoms(format_type = "mmcif", excluded=())
         hetatm_df = cif_df.query('group_PDB == "HETATM"') #[pdb_df.group_PDB == "HETATM"]
         if len(hetatm_df) == 0:
-            log.warning("No HETATM records in {}".format(pdb_id))
+            log.info("No HETATM records in {}".format(pdb_id))
             continue
         hetatm_df = hetatm_df.replace({"label_alt_id": ""}, " ")
         w = PDBXwriter(outputfile = cif_out)
@@ -510,7 +505,7 @@ def get_SIFTS_from_CIF(cif_df, pdb_id):
             try:
                 assert len(up_accs_4_chain) == 1
             except AssertionError:
-                log.warning("More than one UniProt accession for chain {} of {}".format(chain, pdb_id))
+                log.error("More than one UniProt accession for chain {} of {}".format(chain, pdb_id))
             
             chain2acc[chain] = up_accs_4_chain[0] # dict from orig_label_asym_id to UniProt accession
             
@@ -742,7 +737,7 @@ def get_arpeggio_fingerprints(pdb_ids, assembly_cif_dir, asymmetric_dir, arpeggi
         if override or not os.path.isfile(arpeggio_out):
             ec, cmd = run_arpeggio(assembly_path, lig_sel, arpeggio_dir)
             if ec != 0:
-                log.warning("Arpeggio failed for {} with {}".format(pdb_id, cmd))
+                log.error("Arpeggio failed for {} with {}".format(pdb_id, cmd))
                 continue
         else:
             log.debug("{} already exists!".format(arpeggio_out))
@@ -769,7 +764,7 @@ def get_arpeggio_fingerprints(pdb_ids, assembly_cif_dir, asymmetric_dir, arpeggi
             try:
                 chain_remap_dict = dict(zip(chain_remap_df["new_auth_asym_id"], chain_remap_df["orig_label_asym_id"])) # dict from new_auth_asym_id to orig_label_asym_id
             except KeyError:
-                log.warning("No chain remapping data for {}".format(pdb_id)) # example: 8gia. No chain remapping data, legacy CIF. Downloaded editing the URL, removing "-".
+                log.error("No chain remapping data for {}".format(pdb_id)) # example: 8gia. No chain remapping data, legacy CIF. Downloaded editing the URL, removing "-".
                 continue
 
 
@@ -892,7 +887,7 @@ def write_chimeraX_attr(cluster_id_dict, lig2chain_cif, trans_dir, attr_out): # 
             out.write(i)
     return 
 
-def write_chimeraX_script(chimera_script_out, trans_dir, attr_out, chimeraX_commands):
+def write_chimeraX_script(chimera_script_out, trans_dir, attr_out, chX_session_out, chimeraX_commands):
     """
     Writes a chimeraX script to colour and format.
     """
@@ -906,6 +901,7 @@ def write_chimeraX_script(chimera_script_out, trans_dir, attr_out, chimeraX_comm
         out.write("# colouring and formatting for visualisation\n\n")
         for cmxcmd in chimeraX_commands:
             out.write("{}\n\n".format(cmxcmd))
+        out.write("save {}\n\n".format(chX_session_out))
     return
 
 ## CLUSTER ANALYSIS UTILS
@@ -1000,15 +996,14 @@ def get_dssp_data(pdb_ids, assembly_dir, dssp_dir, cif_sifts_dir, chain_remappin
             elif set(un_atoms).issubset(set(bbone_atoms)):
                 log.warning("Only backbone atoms found in {}. Skipping DSSP".format(assembly_path)) # incomplete residues, CA + rest of backbone, but no side chains, e.g., 6yw7
             else:
-                log.error("Unknown DSSP Error for {}".format(assembly_path)) 
-                print(assembly_path, dssp_dir)
+                log.error("Unknown DSSP Error for {} and {}".format(assembly_path, dssp_dir)) 
             continue
         assembly_root, _ = os.path.splitext(os.path.basename(assembly_path))
         dssp_df = pd.read_pickle(os.path.join(dssp_dir, assembly_root + ".pkl"))
         try:
             sifts_dict = load_pickle(os.path.join(cif_sifts_dir, "{}_pdb2up.pkl".format(pdb_id)))
         except:
-            log.warning("SIFTS mapping not found for {}".format(pdb_id)) # this happens if there is no SIFTS, could be because of legacy CIF, e.g., 8gia
+            log.error("SIFTS mapping not found for {}".format(pdb_id)) # this happens if there is no SIFTS, could be because of legacy CIF, e.g., 8gia
             continue
         chain_remapping_df = load_pickle(os.path.join(chain_remapping_dir, "{}_bio_chain_remapping.pkl".format(pdb_id)))
         chain_remapping_dict = dict(zip(chain_remapping_df["new_label_asym_id"], chain_remapping_df["orig_label_asym_id"]))
@@ -1066,12 +1061,12 @@ def get_best_struct_seq(acc, segment, out, best = None):
             best_seq = d.loc["sequence", best_pdb_id]
             log.debug("Getting sequence from SEGMENT REPRESENTATIVE structure through DOMAINS GRAPH-API for Segment {} of {}".format(str(segment), acc))
         except HTTPError as e:
-            log.warning("Could not retrieve sequence from DOMAINS GRAPH-API for entity {}, chain {} in {} for Segment {} of {}".format(str(best_entity_id), best_chain_id, best_pdb_id, str(segment), acc))
+            log.error("Could not retrieve sequence from DOMAINS GRAPH-API for entity {}, chain {} in {} for Segment {} of {}".format(str(best_entity_id), best_chain_id, best_pdb_id, str(segment), acc))
             try:
                 best_seq = get_best_seq_SOLR(best_pdb_id, best_chain_id)
                 log.debug("Getting sequence from SEGMENT REPRESENTATIVE structure from Solr-based query system for Segment {} of {}".format(str(segment), acc))
             except:
-                log.warning("Could not retrieve sequence from SOLR-query API for entity {}, chain {} in {} for Segment {} of {}".format(str(best_entity_id), best_chain_id, best_pdb_id, str(segment), acc))
+                log.error("Could not retrieve sequence from SOLR-query API for entity {}, chain {} in {} for Segment {} of {}".format(str(best_entity_id), best_chain_id, best_pdb_id, str(segment), acc))
                 try:
                     df = pd.read_json("https://www.ebi.ac.uk/pdbe/api/pdb/entry/molecules/{}".format(best_pdb_id), convert_axes = False, dtype = False)
                     mols_df = pd.DataFrame(df[best_pdb_id].tolist())
@@ -1167,10 +1162,12 @@ def get_freqs(i_col, col):
     """
     Calculates amino acid frequences for a given MSA column.
     """
-    # abs_freqs = {
-    #     "A": 0, "R": 0, "N": 0, "D": 0, "C": 0, "Q": 0, "E": 0, "G": 0, "H": 0, "I": 0,
-    #     "L": 0, "K": 0, "M": 0, "F": 0, "P": 0, "S": 0, "T": 0, "W": 0, "Y": 0, "V": 0, "-": 0
-    # }
+
+    abs_freqs = {
+        "A": 0, "R": 0, "N": 0, "D": 0, "C": 0, "Q": 0, "E": 0, "G": 0, "H": 0, "I": 0,
+        "L": 0, "K": 0, "M": 0, "F": 0, "P": 0, "S": 0, "T": 0, "W": 0, "Y": 0, "V": 0, "-": 0
+    }
+    
     non_standard_aas = {}
     for aa in col:
         aa = aa.upper()
@@ -1495,8 +1492,8 @@ if __name__ == '__main__': ### command to run form command line: python3.6 frags
             matrices_df.to_json(supp_mat_out)
             log.info("Matrix table contains data from {} chains for {}".format(str(len(matrices_df)), acc))
         except HTTPError as e:
-            log.warning("No structures solved for {}. Exiting programme".format(acc))
-            print("{}\t{}".format(acc, str(15)), flush = True)
+            log.warning("Superposition matrices not found for {}. Exiting programme".format(acc))
+            print("{}\t{}".format(acc, str(2)), flush = True)
             sys.exit(0)
 
     ### RETRIEVES ALL LIGAND-BINDING PDB IDS FOR acc, EXCEPT IF THERE ARE NOT ANY LIGAND-BINDING STRUCTURES
@@ -1508,7 +1505,7 @@ if __name__ == '__main__': ### command to run form command line: python3.6 frags
         log.info("There are {} ligand-binding structures for {}".format(str(n_all_ligs_pdbs), acc))
     except KeyError as e:
         log.warning("No ligand-binding structures for {}. Exiting programme".format(acc))
-        print("{}\t{}".format(acc, str(16)), flush = True)
+        print("{}\t{}".format(acc, str(3)), flush = True)
         sys.exit(0)
 
     ### READING SUPERPOSITION DATA FROM GRAPH-API. CONTAINS INFO ABOUT SEGMENTS.
@@ -1524,7 +1521,7 @@ if __name__ == '__main__': ### command to run form command line: python3.6 frags
             supp_data.to_json(segment_data_out)
         except HTTPError as e:
             log.warning("Superposition data could not be obtained from GRAPH-API for {}. Exiting programme".format(acc))
-            print("{}\t{}".format(acc, str(17)), flush = True)
+            print("{}\t{}".format(acc, str(4)), flush = True)
             sys.exit(0)
 
     supp_data.index = supp_data.index.astype(int) # before this index was a string, now it is an int
@@ -1574,9 +1571,9 @@ if __name__ == '__main__': ### command to run form command line: python3.6 frags
                 results_dir,
             ]
             
-            for dirr in dirs:
-                if not os.path.isdir(dirr):
-                    os.mkdir(dirr)
+            # for dirr in dirs:
+            #     if not os.path.isdir(dirr):
+            #         os.mkdir(dirr)
 
             ### CHECKS IF FINAL RESULTS TABLE EXISTS, AND IF SO, SKIPS TO NEXT SEGMENT
 
@@ -1593,7 +1590,7 @@ if __name__ == '__main__': ### command to run form command line: python3.6 frags
 
             if len(segment_df) == 0: # happened for 8au0 of O94901. Brand new of 19/07/2023.
                 log.warning("Segment {} of {} presents no chains in supp data".format(str(segment), acc))
-                print("{}\t{}".format(seg_id, str(18)), flush = True)
+                print("{}\t{}".format(seg_id, str(5)), flush = True)
                 continue
 
             log.info("Segment {} of {} presents {} chains".format(str(segment), acc, str(len(segment_df))))
@@ -1603,9 +1600,14 @@ if __name__ == '__main__': ### command to run form command line: python3.6 frags
             pdb_ids = [pdb_id for pdb_id in pdb_ids if pdb_id in all_ligs_pdbs] # filters out pdb_ids that do not present BioLiP-defined LOIs
 
             if pdb_ids == []: # there are no BioLiP LOI-binding structures for this segment
-                print("{}\t{}".format(seg_id, str(5)), flush = True)
+                print("{}\t{}".format(seg_id, str(6)), flush = True)
                 log.warning("Segment {} of {} does not present any ligand-binding structures".format(str(segment), acc))
                 continue
+
+
+            for dirr in dirs:
+                if not os.path.isdir(dirr):
+                    os.mkdir(dirr)
 
             ### GETTING EXPERIMENTAL DATA FROM ALL STRUCTURES
 
@@ -1633,7 +1635,7 @@ if __name__ == '__main__': ### command to run form command line: python3.6 frags
             else:
                 if "experimental_method" not in exp_data_df or "resolution" not in exp_data_df:
                     log.warning("Medhod or resolution missing. No quality structures returned.")
-                    print("{}\t{}".format(seg_id, str(3)), flush = True)
+                    print("{}\t{}".format(seg_id, str(7)), flush = True)
                     continue
 
                 if experimental_methods == "ALL":
@@ -1650,7 +1652,7 @@ if __name__ == '__main__': ### command to run form command line: python3.6 frags
 
                 if good_pdbs == []:
                     log.warning("None of the structures meet quality threshold for Segment {} of {}".format(str(segment), acc))
-                    print("{}\t{}".format(seg_id, str(4)), flush = True)
+                    print("{}\t{}".format(seg_id, str(8)), flush = True)
                     continue
 
                 ids2remove = [] # now because of exp method and resolution
@@ -1663,8 +1665,7 @@ if __name__ == '__main__': ### command to run form command line: python3.6 frags
                 
             unique_pdbs = list(set(pdb_ids)) # this is to avoid querying the same pdb multiple times
 
-            log.info("Segment {} of {} presents {} high quality structures".format(str(segment), acc, str(len(unique_pdbs))))
-            
+            log.info("Segment {} of {} presents {} high quality structures".format(str(segment), acc, str(len(unique_pdbs))))     
 
             segment_df = segment_df.query('pdb_id in @pdb_ids') # filtering segment dataframe, so it only includes transformation data of those tructures present in local copy of PDB
             matrices = segment_df.matrix.tolist()
@@ -1691,7 +1692,7 @@ if __name__ == '__main__': ### command to run form command line: python3.6 frags
             if override or not os.path.isfile(ligs_dict_out):
                 ligs_dict = get_loi_data_from_assembly(assembly_files, biolip_dict, acc)
                 dump_pickle(ligs_dict, ligs_dict_out)
-                log.debug("Ligand data obtained")
+                log.info("Ligand data obtained")
             else:
                 ligs_dict = load_pickle(ligs_dict_out)
                 log.debug("Ligand data loaded")
@@ -1712,18 +1713,18 @@ if __name__ == '__main__': ### command to run form command line: python3.6 frags
             ### CHECKING THAT THERE ARE FINGERPRINTS. THERE SHOULD ALWAYS BE AT THIS POINT.
 
             if lig_fps == {}: # if there are not any segment fingerprints (no ligands bound)
-                print("{}\t{}".format(seg_id, str(6)), flush = True)
+                print("{}\t{}".format(seg_id, str(9)), flush = True)
                 log.warning("ACHTUNG! No fingerprints found for Segment {} of {}".format(str(segment), acc))
                 continue
 
-            ### FILTER OUT NON-SEGMENT LIGAND INTERACTIONS
+            # ### FILTER OUT NON-SEGMENT LIGAND INTERACTIONS (not necessary with Arpeggio)
 
-            n_acc_chain_inters = sum([len(inters) for inters in lig_fps.values()]) # number of ligands interactions with target UniProt Accession chains for all structures in a segment
+            # n_acc_chain_inters = sum([len(inters) for inters in lig_fps.values()]) # number of ligands interactions with target UniProt Accession chains for all structures in a segment
             
-            if n_acc_chain_inters == 0: #there are ligands bound, but not to the target protein chains, across all ligands bound in all structures for a segment
-                print("{}\t{}".format(seg_id, str(7)), flush = True)
-                log.warning("None of the ligands in Segment {} of {} interact with any of the target chains".format(str(segment), acc))
-                continue
+            # if n_acc_chain_inters == 0: #there are ligands bound, but not to the target protein chains, across all ligands bound in all structures for a segment
+            #     print("{}\t{}".format(seg_id, str(10)), flush = True)
+            #     log.warning("None of the ligands in Segment {} of {} interact with any of the target chains".format(str(segment), acc))
+            #     continue
 
             log.info("Ligand fingerprints obtained for Segment {} of {}".format(str(segment), acc))
 
@@ -1747,7 +1748,7 @@ if __name__ == '__main__': ### command to run form command line: python3.6 frags
                 log.info("Calcualted intersection matrix")
             else:
                 irel_matrix = load_pickle(irel_mat_out)
-                log.info("Loaded intersection matrix")
+                log.debug("Loaded intersection matrix")
             if n_ligs == 1:
                 cluster_ids = [0]
             else:
@@ -1785,28 +1786,6 @@ if __name__ == '__main__': ### command to run form command line: python3.6 frags
                 new_k = "_".join([pdb_id, lig_name, chain_remapping_dict[new_auth_asym_id], lig_resnum])
                 cluster_id_dict_new[new_k] = v # in here, we will re-write k-v pairs when different ligands are mapped back to same orig chain (they should hace same BS ID)
 
-            # lig2chain_cif = {}
-            # for simple_file in os.listdir(simple_dir): 
-            #     if not simple_file.endswith(".cif"):
-            #         continue
-            #     pdb_id = os.path.splitext(simple_file)[0].split("_")[0]
-            #     simple_cif_file = os.path.join(simple_dir, simple_file)
-            #     cif_df = PDBXreader(inputfile = simple_cif_file).atoms(format_type = "mmcif", excluded=())
-            #     cif_df["pdb_id"] = pdb_id
-            #     ligs_df = cif_df.query(
-            #         'group_PDB == "HETATM"'
-            #     ).query(
-            #         'label_comp_id != "HOH"'
-            #     ).drop_duplicates(
-            #         ["label_comp_id", "auth_asym_id", "label_asym_id", "auth_seq_id"]
-            #     ).reset_index(
-            #         drop = True
-            #     )[["pdb_id", "label_comp_id", "label_asym_id", "auth_asym_id", "auth_seq_id"]]
-                
-            #     for _, row in ligs_df.iterrows():
-            #         nk = "{}_{}_{}_{}".format(row.pdb_id, row.label_comp_id, row.auth_asym_id, row.auth_seq_id) # this has to be auth_asym_id to match with cluster_id_dict_new and ChimeraX
-            #         lig2chain_cif[nk] = simple_file
-
             lig2chain_out = os.path.join(results_dir, "{}_{}_{}_{}_{}_{}.lig2chain.pkl".format(acc, str(segment), experimental_methods, str(resolution), lig_clust_method, lig_clust_dist))
             if override or not os.path.isfile(lig2chain_out):
                 lig2chain_cif = get_lig2chain_dict(simple_dir)
@@ -1814,10 +1793,7 @@ if __name__ == '__main__': ### command to run form command line: python3.6 frags
                 log.info("Ligand to chain mapping dictionary generated")
             else:
                 lig2chain_cif = load_pickle(lig2chain_out)
-                log.info("Ligand to chain mapping dictionary loaded")
-
-
-            #print(lig2chain_cif)
+                log.debug("Ligand to chain mapping dictionary loaded")
 
             attr_out = os.path.join(results_dir, "{}_{}_{}_{}_{}_{}.defattr".format(acc, str(segment), experimental_methods, str(resolution), lig_clust_method, lig_clust_dist))
 
@@ -1829,11 +1805,20 @@ if __name__ == '__main__': ### command to run form command line: python3.6 frags
 
             ### IMPLEMENT CHIMERA OPENING SCRIPT: opens only those PDBs that are actually binding ligands. could be less than 50% of total chains
 
-            if override or not os.path.isfile(chimera_script_out):
+            chX_session_out = os.path.join(results_dir, "{}_{}_{}_{}_{}_{}.cxs".format(acc, str(segment), experimental_methods, str(resolution), lig_clust_method, lig_clust_dist))
 
-                write_chimeraX_script(chimera_script_out, simple_dir, os.path.basename(attr_out), chimeraX_commands) # this actually needs to be simplified PDBs, not transformed ones ???
+            if override or not os.path.isfile(chimera_script_out) or not os.path.isfile(chX_session_out):
+
+                write_chimeraX_script(chimera_script_out, simple_dir, os.path.basename(attr_out), os.path.basename(chX_session_out), chimeraX_commands) # this actually needs to be simplified PDBs, not transformed ones ???
 
             log.info("Chimera attributes and script generated for Segment {} of {}".format(str(segment), acc))
+
+            # if override or not os.path.isfile(chX_session_out):
+
+            #     write_chimeraX_session(chimera_script_out) # this will execute ChimeraX on the command line and generate a session file from the script file
+
+            #     log.info("Chimera session generated for Segment {} of {}".format(str(segment), acc))
+            
 
             ### BINDING SITE MEMBERSHIP PROCESSING
 
@@ -1855,7 +1840,7 @@ if __name__ == '__main__': ### command to run form command line: python3.6 frags
                 log.info("Calculated binding site composition") 
             else:
                 cluster_ress = load_pickle(cluster_ress_out)
-                log.info("Loaded binding site composition")
+                log.debug("Loaded binding site composition")
 
             if override or not os.path.isfile(bs_mm_dict_out):
                 bs_ress_membership_dict = get_residue_bs_membership(cluster_ress)
@@ -1873,7 +1858,7 @@ if __name__ == '__main__': ### command to run form command line: python3.6 frags
                 log.info("Obtained DSSP data")
             else:
                 dssp_data = pd.read_pickle(master_dssp_out)
-                log.info("Loaded DSSP data")
+                log.debug("Loaded DSSP data")
             if dssp_data.empty:
                 log.warning("There is no DSSP data for Segment {} of {}".format(str(segment), acc))
             else:
@@ -1965,7 +1950,7 @@ if __name__ == '__main__': ### command to run form command line: python3.6 frags
             n_seqs = len(AlignIO.read(hits_aln, MSA_fmt))
 
             if n_seqs == 1: # need RESULTS TABLE even if there is no MSA data
-                print("{}\t{}".format(seg_id, str(11)), flush = True)
+                print("{}\t{}".format(seg_id, str(10)), flush = True)
                 log.critical("No sequences were found by jackHMMER for Segment {} of {}. Finishing here".format(str(segment), acc))
                 continue
             else:
@@ -2045,7 +2030,7 @@ if __name__ == '__main__': ### command to run form command line: python3.6 frags
                     try:
                         variants_table = varalign.align_variants.align_variants(aln_info_human, path_to_vcf = gnomad_vcf,  include_other_info = False, write_vcf_out = False)     
                     except ValueError as e:
-                        print("{}\t{}".format(seg_id, str(12)), flush = True)
+                        print("{}\t{}".format(seg_id, str(11)), flush = True)
                         variants_table = pd.DataFrame()
                         log.warning("No variants were retrieved for Segment {} of {}".format(str(segment), acc))
 
@@ -2076,7 +2061,7 @@ if __name__ == '__main__': ### command to run form command line: python3.6 frags
                         )
 
                         if missense_variants_df.empty:
-                            print("{}\t{}".format(seg_id, str(13)), flush = True)
+                            print("{}\t{}".format(seg_id, str(12)), flush = True)
                             log.warning("No missense variants found for MSA of Segment {} of {}".format(str(segment), acc))
                             pass
 
@@ -2092,7 +2077,6 @@ if __name__ == '__main__': ### command to run form command line: python3.6 frags
 
                     if missense_variants_df.empty:
                         pass
-                        #log.info("No missense variants found for MSA of Segment {} of {}".format(str(segment), acc))
                             
                     else:
                         # ADDS COLUMNS FROM MISSENSE DF TO SHENKIN FILT DF, CONSERVATION AND VARIATION DATA ABOUT HUMAN VARIANT SUB MSA
@@ -2107,7 +2091,7 @@ if __name__ == '__main__': ### command to run form command line: python3.6 frags
                         shenkin_filt.loc[:, "se_OR"] = missense_variants_df.se_OR
 
             else:
-                print("{}\t{}".format(seg_id, str(14)), flush = True)
+                print("{}\t{}".format(seg_id, str(13)), flush = True)
                 log.warning("No human sequences for Segment {} of {}".format(str(segment), acc))
                 pass
 
@@ -2116,7 +2100,7 @@ if __name__ == '__main__': ### command to run form command line: python3.6 frags
                 aln_ids = list(set([seqid[0] for seqid in indexed_mapping_table.index.tolist() if acc in seqid[0]])) # THIS IS EMPTY IF QUERY SEQUENCE IS NOT FOUND
                 n_aln_ids = len(aln_ids)
                 if n_aln_ids != 1:
-                    log.warning("There are {} sequences matching accession for Segment {} in {}".format(str(n_aln_ids), str(segment), acc))
+                    log.info("There are {} sequences matching accession for Segment {} in {}".format(str(n_aln_ids), str(segment), acc))
                 mapped_data = merge_shenkin_df_and_mapping(shenkin_filt, indexed_mapping_table, aln_ids)
                 mapped_data.to_pickle(shenkin_mapped_out)
             else:
