@@ -145,6 +145,10 @@ interaction_to_color = { # following Arpeggio's colour scheme
 
 ## UTILS
 
+# Function to check if a directory is empty
+def is_dir_empty(dir_path):
+    return not os.listdir(dir_path) if os.path.exists(dir_path) else True
+
 def get_status_code_data(status_code_file):
     """
     Reads status code file and returns dictionaries
@@ -489,7 +493,8 @@ def get_SIFTS_from_CIF(cif_df, pdb_id):
     for chain in df_chains:
         df_chain = cif_df.query('label_asym_id == @chain & group_PDB == "ATOM" & pdbx_sifts_xref_db_acc != "?"').copy()
         if df_chain.empty:
-            log.warning("No atoms in chain {} of {}".format(chain, pdb_id))
+            #log.warning("No atoms in chain {} of {}".format(chain, pdb_id))
+            continue
         else:
             df_filt = df_chain[i_cols].drop_duplicates()
             df_filt = df_filt.query('pdbx_sifts_xref_db_num != "?"').copy()
@@ -634,6 +639,8 @@ def process_arpeggio_df(arp_df, pdb_id, ligand_names, chain_remap_dict, pdb2up, 
 
     switched_df = switch_columns(inter_df, ligand_names)
 
+    #print(switched_df)
+
     switched_df = switched_df.query('label_comp_id_end in @pdb_resnames').copy() # filtering out non-protein-ligand interactions
 
     #print(pdb_id, ligand_names)
@@ -647,13 +654,21 @@ def process_arpeggio_df(arp_df, pdb_id, ligand_names, chain_remap_dict, pdb2up, 
     # Add original label_asym_id from asymmetric unit
     switched_df["UniProt_acc_end"] = switched_df.orig_label_asym_id_end.map(chain2acc)
 
+    #print(switched_df)
+
     prot_acc_inters = switched_df.query('UniProt_acc_end == @acc').copy() # filtering out non-POI interactions
+    if prot_acc_inters.empty:
+        log.warning("No interactions with protein atoms for {}".format(pdb_id))
+        return prot_acc_inters, "no-POI-inters"
 
     segment_inters = prot_acc_inters.query('@segment_start <= UniProt_ResNum_end <= @segment_end').copy() # filtering out non-segment interactions
+    if segment_inters.empty:
+        log.warning("No interactions with protein segment atoms between {}-{} for {}".format(segment_start, segment_end, pdb_id))
+        return segment_inters, "no-SOI-inters"
     
     segment_inters = segment_inters.sort_values(by=["auth_asym_id_end", "UniProt_ResNum_end", "auth_atom_id_end"]).reset_index(drop = True)
     
-    return segment_inters
+    return segment_inters, "OK"
 
 def generate_dictionary(mmcif_file):
     """
@@ -710,6 +725,10 @@ def get_arpeggio_fingerprints(pdb_ids, assembly_cif_dir, asymmetric_dir, arpeggi
     """
     fp_dict = {}
 
+    no_mapping_pdbs = []
+
+    fp_status = {}
+
     for pdb_id in pdb_ids:
 
         assembly_path = os.path.join(assembly_cif_dir, "{}_bio.cif".format(pdb_id))
@@ -744,6 +763,8 @@ def get_arpeggio_fingerprints(pdb_ids, assembly_cif_dir, asymmetric_dir, arpeggi
             pass
 
         arp_df = pd.read_json(arpeggio_out) 
+
+        #print(arp_df)
         
         arpeggio_proc_df_out = os.path.join(arpeggio_dir, basename + "_proc.pkl")
         if override or not os.path.isfile(arpeggio_proc_df_out):
@@ -765,6 +786,7 @@ def get_arpeggio_fingerprints(pdb_ids, assembly_cif_dir, asymmetric_dir, arpeggi
                 chain_remap_dict = dict(zip(chain_remap_df["new_auth_asym_id"], chain_remap_df["orig_label_asym_id"])) # dict from new_auth_asym_id to orig_label_asym_id
             except KeyError:
                 log.error("No chain remapping data for {}".format(pdb_id)) # example: 8gia. No chain remapping data, legacy CIF. Downloaded editing the URL, removing "-".
+                no_mapping_pdbs.append(pdb_id)
                 continue
 
 
@@ -782,10 +804,14 @@ def get_arpeggio_fingerprints(pdb_ids, assembly_cif_dir, asymmetric_dir, arpeggi
                 up2pdb = load_pickle(up2pdb_out)
                 chain2acc = load_pickle(chain2acc_out)
 
-            proc_inters = process_arpeggio_df(
+            proc_inters, fp_stat = process_arpeggio_df(
                 arp_df, pdb_id, ligand_names, chain_remap_dict,
                 pdb2up, chain2acc, acc, segment_start, segment_end
             )
+
+            fp_status[pdb_id] = fp_stat
+
+            #print(proc_inters)
 
             coords_dict = generate_dictionary(assembly_path)
 
@@ -800,6 +826,8 @@ def get_arpeggio_fingerprints(pdb_ids, assembly_cif_dir, asymmetric_dir, arpeggi
             proc_inters = pd.read_pickle(arpeggio_proc_df_out)
 
         proc_inters_indexed = proc_inters.set_index(["label_comp_id_bgn", "auth_asym_id_bgn", "auth_seq_id_bgn"])
+
+        #print(proc_inters_indexed)
         
         for el in ligs_dict[pdb_id]:
             try:
@@ -811,7 +839,7 @@ def get_arpeggio_fingerprints(pdb_ids, assembly_cif_dir, asymmetric_dir, arpeggi
                 log.warning("Empty fingerprint for ligand {} in {}".format(el, pdb_id))
                 continue
             
-    return fp_dict
+    return fp_dict, no_mapping_pdbs, fp_status
 
 def get_labs(fingerprints_dict):
     """
@@ -1501,6 +1529,7 @@ if __name__ == '__main__': ### command to run form command line: python3.6 frags
     biolip_dict = load_pickle(biolip_data)
     try:
         all_ligs_pdbs = list(biolip_dict[acc].keys()) # NOW DONE WITH BIOLIP, this will be a list of all PDB IDs that present LOIs for a given UniProt
+        #print(all_ligs_pdbs)
         n_all_ligs_pdbs = len(all_ligs_pdbs) # number of PDB IDs that present LOIs for a given UniProt
         log.info("There are {} ligand-binding structures for {}".format(str(n_all_ligs_pdbs), acc))
     except KeyError as e:
@@ -1535,6 +1564,8 @@ if __name__ == '__main__': ### command to run form command line: python3.6 frags
     segment_chains = get_segment_membership(supp_data, acc)
     segment_pdbs = {k: list(set([vv.split("_")[0] for vv in v])) for k, v in segment_chains.items()}
 
+    #print(segment_pdbs)
+
     ### CREATES WORKING DIRECTORY FOR acc
 
     wd = os.path.join(OUTPUT_FOLDER, acc)
@@ -1546,9 +1577,16 @@ if __name__ == '__main__': ### command to run form command line: python3.6 frags
 
     for segment in segments:
 
+        # if segment != 6: ### REMOVE!!!
+        #      continue
+
         seg_id = "{}_{}".format(acc, str(segment))
         segment_start = supp_data.loc[segment, acc]["segment_start"]
         segment_end = supp_data.loc[segment, acc]["segment_end"]
+        if segment_start > segment_end:
+            log.warning("Segment {} of {} has start {} > {} end. Skipping to next segment.".format(str(segment), acc, str(segment_start), str(segment_end)))
+            print("{}\t{}".format(seg_id, str(15)), flush = True)
+            continue
 
         try:
 
@@ -1701,21 +1739,31 @@ if __name__ == '__main__': ### command to run form command line: python3.6 frags
 
             if override or not os.path.isfile(fps_out):
 
-                lig_fps = get_arpeggio_fingerprints(unique_pdbs, ASSEMBLY_FOLDER, ASYM_FOLDER, arpeggio_dir, CHAIN_REMAPPING_FOLDER, CIF_SIFTS_FOLDER, ligs_dict, acc, segment_start, segment_end) ### TODO IF WANTED: IMPLEMENT ONLY-SIDECHAIN INTERACTIONS ###
+                lig_fps, no_mapping_pdbs, fp_status = get_arpeggio_fingerprints(unique_pdbs, ASSEMBLY_FOLDER, ASYM_FOLDER, arpeggio_dir, CHAIN_REMAPPING_FOLDER, CIF_SIFTS_FOLDER, ligs_dict, acc, segment_start, segment_end, override) ### TODO IF WANTED: IMPLEMENT ONLY-SIDECHAIN INTERACTIONS ###
                 dump_pickle(lig_fps, fps_out)
             else:
                 with open(fps_out, "rb") as f:
                     lig_fps = pickle.load(f) # stands for ligand fingerprints
 
 
+            bad_fps_pdbs = [k for k, v in fp_status.items() if v != "OK"]
             ######################### NEW FROM 22/01/2024 RESTRUCTURE: USING ARPEGGIO #########################
 
             ### CHECKING THAT THERE ARE FINGERPRINTS. THERE SHOULD ALWAYS BE AT THIS POINT.
 
             if lig_fps == {}: # if there are not any segment fingerprints (no ligands bound)
-                print("{}\t{}".format(seg_id, str(9)), flush = True)
-                log.warning("ACHTUNG! No fingerprints found for Segment {} of {}".format(str(segment), acc))
-                continue
+                if set(no_mapping_pdbs) == set(unique_pdbs):
+                    print("{}\t{}".format(seg_id, str(14)), flush = True)
+                    log.warning("None of the structures had SIFTS mappings for Segment {} of {}".format(str(segment), acc))
+                    continue
+                elif set(bad_fps_pdbs) == set(unique_pdbs):
+                    print("{}\t{}".format(seg_id, str(16)), flush = True)
+                    log.warning("None of the structures had interactions of interest for Segment {} of {}".format(str(segment), acc))
+                    continue
+                else:
+                    print("{}\t{}".format(seg_id, str(9)), flush = True)
+                    log.warning("ACHTUNG! No fingerprints found for Segment {} of {}".format(str(segment), acc))
+                    continue
 
             # ### FILTER OUT NON-SEGMENT LIGAND INTERACTIONS (not necessary with Arpeggio)
 
@@ -1921,6 +1969,27 @@ if __name__ == '__main__': ### command to run form command line: python3.6 frags
 
                 log.info("DSSP data processed for Segment {} of {}".format(str(segment), acc))
 
+            #### VARIATION SECTION STARTS ####
+
+            OLD_DIR = "/cluster/gjb_lab/2394007/LIGYSIS_PDB/output_V1/{}/{}/variants/".format(acc, str(segment))
+
+            if is_dir_empty(variants_dir) or not os.path.exists(variants_dir):
+                if os.path.isdir(OLD_DIR):
+                    if not os.path.exists(variants_dir):
+                        os.makedir(variants_dir)
+                    for item in os.listdir(OLD_DIR):
+                        s = os.path.join(OLD_DIR, item)
+                        d = os.path.join(variants_dir, item)
+                        if os.path.isdir(s):
+                            shutil.copytree(s, d)
+                        else:
+                            shutil.copy2(s, d)
+                    log.info("Copied old variants data to new directory")
+                else:
+                    log.error("OLD_DIR does not exist. Cannot copy to variants_dir.")
+            else:
+                log.info("variants_dir exists and is not empty. Leaving as is.")
+                
             ### GENERATE ALIGNMENT                                                 
 
             seq_out = os.path.join(variants_dir, "{}_{}.fasta".format(acc, str(segment)))
@@ -1967,6 +2036,7 @@ if __name__ == '__main__': ### command to run form command line: python3.6 frags
             log.info("MSA realised for Segment {} of {}".format(str(segment), acc))
 
             ### CONSERVATION ANALYSIS
+
             prot_cols = prot_cols = get_target_prot_cols(hits_aln, best_seq_id)
             shenkin_out = os.path.join(variants_dir, "{}_{}_rf_shenkin.pkl".format(acc, str(segment)))
             if override_variants or not os.path.isfile(shenkin_out):
@@ -2107,6 +2177,8 @@ if __name__ == '__main__': ### command to run form command line: python3.6 frags
                 mapped_data = pd.read_pickle(shenkin_mapped_out)
             log.info("Conservation + variant data obtained for Segment {} of {}".format(str(segment), acc))
 
+            #### VARIATION SECTION FINISHES ####
+            
             ### GENERATE SUMMARY TABLES
 
             if not dssp_data.empty:

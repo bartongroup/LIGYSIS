@@ -1,5 +1,6 @@
 __pycache__
-output/
+output_V1/
+output_V2/
 data/
 logs/
 bs_ress_dicts/

@@ -4,7 +4,7 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 INPUT_FOLDER = os.path.join(BASE_DIR, "input")
 
-OUTPUT_FOLDER = os.path.join(BASE_DIR, "output")
+OUTPUT_FOLDER = os.path.join(BASE_DIR, "output_V2")
 
 LOGS_FOLDER = os.path.join(BASE_DIR, "logs")
 
