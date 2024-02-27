@@ -832,6 +832,33 @@ def get_inters(fingerprints_dict):
 
 ## CHIMERA COLOURING FUNCTIONS, AND VISUALISATION
 
+def get_lig2chain_dict(simple_dir):
+    """
+    Returns a dictionary that maps ligands in ASYM unit to their chains.
+    """
+    lig2chain_cif = {}
+    for simple_file in os.listdir(simple_dir): 
+        if not simple_file.endswith(".cif"):
+            continue
+        pdb_id = os.path.splitext(simple_file)[0].split("_")[0]
+        simple_cif_file = os.path.join(simple_dir, simple_file)
+        cif_df = PDBXreader(inputfile = simple_cif_file).atoms(format_type = "mmcif", excluded=())
+        cif_df["pdb_id"] = pdb_id
+        ligs_df = cif_df.query(
+            'group_PDB == "HETATM"'
+        ).query(
+            'label_comp_id != "HOH"'
+        ).drop_duplicates(
+            ["label_comp_id", "auth_asym_id", "label_asym_id", "auth_seq_id"]
+        ).reset_index(
+            drop = True
+        )[["pdb_id", "label_comp_id", "label_asym_id", "auth_asym_id", "auth_seq_id"]]
+
+        for _, row in ligs_df.iterrows():
+            nk = "{}_{}_{}_{}".format(row.pdb_id, row.label_comp_id, row.auth_asym_id, row.auth_seq_id) # this has to be auth_asym_id to match with cluster_id_dict_new and ChimeraX
+            lig2chain_cif[nk] = simple_file
+    return lig2chain_cif
+
 def write_chimeraX_attr(cluster_id_dict, lig2chain_cif, trans_dir, attr_out): # cluster_id_dict is now the new one with orig_label_asym_id
     """
     Gets chimeraX atom specs, binding site ids, and paths
@@ -988,7 +1015,7 @@ def get_dssp_data(pdb_ids, assembly_dir, dssp_dir, cif_sifts_dir, chain_remappin
         
         dssp_df["UniProt_ResNum"] = dssp_df.apply(lambda row: map_values_dssp(row, sifts_dict, pdb_id, chain_remapping_dict), axis=1)
         dssp_df = dssp_df.query('UniProt_ResNum == UniProt_ResNum').copy() # dropping artificially added residues (to cristallise, have no SIFTS mapping to UniProt)
-        dssp_df["UniProt_ResNum"] = dssp_df["UniProt_ResNum"].astype(int)
+        dssp_df["UniProt_ResNum"] = dssp_df["UniProt_ResNum"].astype(int) # this will crash when PDB ResNum is something like 35A, 27A, 27B, e.g., 7rp2
         dssp_df["PDB_ID"] = pdb_id
         all_dssp_dfs.append(dssp_df)
     if all_dssp_dfs == []: # list of dssp dfs is empty, e.g., all structures have CA atoms only (Q12840)
@@ -1758,33 +1785,45 @@ if __name__ == '__main__': ### command to run form command line: python3.6 frags
                 new_k = "_".join([pdb_id, lig_name, chain_remapping_dict[new_auth_asym_id], lig_resnum])
                 cluster_id_dict_new[new_k] = v # in here, we will re-write k-v pairs when different ligands are mapped back to same orig chain (they should hace same BS ID)
 
-            lig2chain_cif = {}
-            for trans_file in os.listdir(trans_dir): # this needs to be whole ASYM units. ACTUALLY NO.
-                if not trans_file.endswith(".cif"):
-                    continue
-                pdb_id = os.path.splitext(trans_file)[0].split("_")[0]
-                trans_cif_file = os.path.join(trans_dir, trans_file)
-                cif_df = PDBXreader(inputfile = trans_cif_file).atoms(format_type = "mmcif", excluded=())
-                cif_df["pdb_id"] = pdb_id
-                ligs_df = cif_df.query(
-                    'group_PDB == "HETATM"'
-                ).query(
-                    'label_comp_id != "HOH"'
-                ).drop_duplicates(
-                    ["label_comp_id", "auth_asym_id", "label_asym_id", "auth_seq_id"]
-                ).reset_index(
-                    drop = True
-                )[["pdb_id", "label_comp_id", "label_asym_id", "auth_asym_id", "auth_seq_id"]]
+            # lig2chain_cif = {}
+            # for simple_file in os.listdir(simple_dir): 
+            #     if not simple_file.endswith(".cif"):
+            #         continue
+            #     pdb_id = os.path.splitext(simple_file)[0].split("_")[0]
+            #     simple_cif_file = os.path.join(simple_dir, simple_file)
+            #     cif_df = PDBXreader(inputfile = simple_cif_file).atoms(format_type = "mmcif", excluded=())
+            #     cif_df["pdb_id"] = pdb_id
+            #     ligs_df = cif_df.query(
+            #         'group_PDB == "HETATM"'
+            #     ).query(
+            #         'label_comp_id != "HOH"'
+            #     ).drop_duplicates(
+            #         ["label_comp_id", "auth_asym_id", "label_asym_id", "auth_seq_id"]
+            #     ).reset_index(
+            #         drop = True
+            #     )[["pdb_id", "label_comp_id", "label_asym_id", "auth_asym_id", "auth_seq_id"]]
                 
-                for _, row in ligs_df.iterrows():
-                    nk = "{}_{}_{}_{}".format(row.pdb_id, row.label_comp_id, row.auth_asym_id, row.auth_seq_id) # this has to be auth_asym_id to match with cluster_id_dict_new and ChimeraX
-                    lig2chain_cif[nk] = trans_file
+            #     for _, row in ligs_df.iterrows():
+            #         nk = "{}_{}_{}_{}".format(row.pdb_id, row.label_comp_id, row.auth_asym_id, row.auth_seq_id) # this has to be auth_asym_id to match with cluster_id_dict_new and ChimeraX
+            #         lig2chain_cif[nk] = simple_file
+
+            lig2chain_out = os.path.join(results_dir, "{}_{}_{}_{}_{}_{}.lig2chain.pkl".format(acc, str(segment), experimental_methods, str(resolution), lig_clust_method, lig_clust_dist))
+            if override or not os.path.isfile(lig2chain_out):
+                lig2chain_cif = get_lig2chain_dict(simple_dir)
+                dump_pickle(lig2chain_cif, lig2chain_out)
+                log.info("Ligand to chain mapping dictionary generated")
+            else:
+                lig2chain_cif = load_pickle(lig2chain_out)
+                log.info("Ligand to chain mapping dictionary loaded")
+
+
+            #print(lig2chain_cif)
 
             attr_out = os.path.join(results_dir, "{}_{}_{}_{}_{}_{}.defattr".format(acc, str(segment), experimental_methods, str(resolution), lig_clust_method, lig_clust_dist))
 
             if override or not os.path.isfile(attr_out):
                 
-               order_dict = write_chimeraX_attr(cluster_id_dict_new, lig2chain_cif, trans_dir, attr_out)
+               order_dict = write_chimeraX_attr(cluster_id_dict_new, lig2chain_cif, simple_dir, attr_out) # this actually needs to be simplified PDBs, not transformed ones ???
 
             chimera_script_out = os.path.join(results_dir, "{}_{}_{}_{}_{}_{}.cxc".format(acc, str(segment), experimental_methods, str(resolution), lig_clust_method, lig_clust_dist))
 
@@ -1792,7 +1831,7 @@ if __name__ == '__main__': ### command to run form command line: python3.6 frags
 
             if override or not os.path.isfile(chimera_script_out):
 
-                write_chimeraX_script(chimera_script_out, trans_dir, os.path.basename(attr_out), chimeraX_commands)
+                write_chimeraX_script(chimera_script_out, simple_dir, os.path.basename(attr_out), chimeraX_commands) # this actually needs to be simplified PDBs, not transformed ones ???
 
             log.info("Chimera attributes and script generated for Segment {} of {}".format(str(segment), acc))
 
