@@ -5,12 +5,12 @@
 #$ -N LIGYSIS_BioLiP_V2
 #$ -M 2394007@dundee.ac.uk
 #$ -m a
-#$ -t 1437-1499
-#$ -tc 15
+#$ -t 1501-2000
+#$ -tc 10
 #$ -o logs/V2/r1/o
 #$ -e logs/V2/r1/e
 # -jc long
-#$ -mods l_hard mfree 8G
+#$ -mods l_hard mfree 16G
 # -adds l_hard hostname '!(m910-*|c6*) #|m910-6*)
 
 

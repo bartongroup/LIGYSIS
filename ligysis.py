@@ -126,19 +126,21 @@ i_cols = [
 ]
 
 interaction_to_color = { # following Arpeggio's colour scheme
-    'polar': '#f04646',
-    'Hbonds': '#f04646',
-    'weak_polar': '#fc7600',
+    # clash
+    # covalent
+    'vdw_clash': '#999999',
+    'vdw': '#999999',
+    'proximal': '#999999',
+    'hbond': '#f04646',
     'weak_hbond': '#fc7600',
-    'halogen': '#3977db',
+    'xbond': '#3977db', #halogen bond
     'ionic': '#e3e159',
-    'metal_complex': '#800080',
+    'metal': '#800080',
     'aromatic': '#00ccff',
     'hydrophobic': '#006633',
     'carbonyl': '#ff007f',
-    'vdw': '#999999',
-    'vdw_clash': '#999999',
-    'proximal': '#999999'
+    'polar': '#f04646',
+    'weak_polar': '#fc7600',
 }
 
 ### FUNCTIONS
@@ -635,6 +637,8 @@ def process_arpeggio_df(arp_df, pdb_id, ligand_names, chain_remap_dict, pdb2up, 
     arp_df = arp_df.join(arp_df_bgn_expanded, lsuffix = "_end", rsuffix = "_bgn").drop(labels='bgn', axis = 1)
 
     inter_df = arp_df.query('interacting_entities == "INTER" & type == "atom-atom"').copy().reset_index(drop = True)
+
+    inter_df = inter_df[inter_df['contact'].apply(lambda x: 'clash' not in x)].copy().reset_index(drop = True) # filtering out clashes
     
     inter_df = inter_df.query('label_comp_id_bgn in @pdb_resnames or label_comp_id_end in @pdb_resnames').copy().reset_index(drop = True) # filtering out ligand-ligand interactions
     if inter_df.empty:
@@ -677,6 +681,8 @@ def process_arpeggio_df(arp_df, pdb_id, ligand_names, chain_remap_dict, pdb2up, 
         return segment_inters, "no-SOI-inters"
     
     segment_inters = segment_inters.sort_values(by=["auth_asym_id_end", "UniProt_ResNum_end", "auth_atom_id_end"]).reset_index(drop = True)
+
+    #print(segment_inters)
 
     #print(segment_inters)
     
@@ -725,7 +731,11 @@ def determine_color(interactions):
         return '#999999'
     else:
         colors = [interaction_to_color[interaction] for interaction in interactions if interaction in interaction_to_color and interaction not in undef]
-        return colors[0] if colors else None  # Return the first color found, or None if no match
+        if colors:
+            return colors[0]
+        else:
+            log.critical("No color found for {}".format(interactions))
+            return None  # Return the first color found, or None if no match
     
 def get_arpeggio_fingerprints(pdb_ids, assembly_cif_dir, asymmetric_dir, arpeggio_dir, chain_remapping_dir, cif_sifts_dir, ligs_dict, acc, segment_start, segment_end, override = False, override_arpeggio = False):
     """
@@ -764,6 +774,13 @@ def get_arpeggio_fingerprints(pdb_ids, assembly_cif_dir, asymmetric_dir, arpeggi
         lig_sel = " ".join(["/{}/{}/".format(el[1], el[2]) for el in ligs_dict[pdb_id]])
 
         ligand_names = list(set([el[0] for el in ligs_dict[pdb_id]]))
+
+        # read assembly and check chain number
+        n_chains_assembly = len(PDBXreader(inputfile = assembly_path).atoms(format_type = "mmcif").query('group_PDB == "ATOM"').label_asym_id.unique()) # HARD THRESHOLD. NOT RUNNING ARPEGGIO ON ASSEMBLIES WITH > 50 CHAINS
+        if n_chains_assembly > 49:
+            log.warning("> 50 chains. NOT RUNNING ARPEGGIO for {}!".format(pdb_id))
+            fp_status[pdb_id] = "Many-chains"
+            continue
 
         arpeggio_out = os.path.join(arpeggio_dir, basename + ".json")
         if override_arpeggio or not os.path.isfile(arpeggio_out): # changed from override to override_arpeggio, to avoid re-running Arpeggio when it has already been run
@@ -844,18 +861,24 @@ def get_arpeggio_fingerprints(pdb_ids, assembly_cif_dir, asymmetric_dir, arpeggi
 
         proc_inters_indexed = proc_inters.set_index(["label_comp_id_bgn", "auth_asym_id_bgn", "auth_seq_id_bgn"])
 
+        #print(proc_inters_indexed.head())
+
        #print(proc_inters_indexed)
+
+        lig_fps_status = {}
         
         for el in ligs_dict[pdb_id]:
             try:
                 lig_rows = proc_inters_indexed.loc[[el], :].copy()  # Happens for 7bf3 (all aa binding MG are artificial N-term), also for low-occuoancy ligands? e.g., 5srs, 5sq5
+                
                 #print(lig_rows)
 
                 #if pdb_id == "8dbs":
-                #    print(el, lig_rows)
+                #print(el, lig_rows, lig_rows.isnull().values)
 
-                if lig_rows.isnull().values.any():
+                if lig_rows.isnull().values.all(): # need all so works only when WHOLE row is Nan
                     log.warning("No interactions for ligand {} in {}".format(el, pdb_id))
+                    lig_fps_status[el] = "No-PLIs"
                     continue
 
                 ###### CHECK IF LIGAND FINGERPRINT IS EMPTY ######
@@ -864,10 +887,17 @@ def get_arpeggio_fingerprints(pdb_ids, assembly_cif_dir, asymmetric_dir, arpeggi
                 #print(lig_fp)
                 lig_key = "{}_".format(pdb_id) + "_".join([str(l) for l in el])
                 fp_dict[lig_key] = lig_fp
+                #lig_fps_status[lig_key] = "OK"
             except:
                 #raise #ValueError("No interactions for ligand {} in {}".format(el, pdb_id))
                 log.warning("Empty fingerprint for ligand {} in {}".format(el, pdb_id))
                 continue
+        
+        bad_lig_fps = [k for k, v in lig_fps_status.items() if v != "OK"]
+
+        if set(bad_lig_fps) == set(ligs_dict[pdb_id]):
+            #log.warning("No Segment-LOI interactions in {}".format(pdb_id))
+            fp_status[pdb_id] = "No-PLIs" # changing fp_status to reflect that there are no protein-ligand interactions
             
     return fp_dict, no_mapping_pdbs, fp_status
 
@@ -1786,6 +1816,9 @@ if __name__ == '__main__': ### command to run form command line: python3.6 frags
             arpeggio_error_pdbs = [k for k, v in fp_status.items() if v == "Arpeggio-fail"]
 
             no_LOI_pdbs = [k for k, v in fp_status.items() if v == "No-LOI"]
+
+            many_chains_pdbs = [k for k, v in fp_status.items() if v == "Many-chains"]
+
             ######################### NEW FROM 22/01/2024 RESTRUCTURE: USING ARPEGGIO #########################
 
             ### CHECKING THAT THERE ARE FINGERPRINTS. THERE SHOULD ALWAYS BE AT THIS POINT.
@@ -1802,6 +1835,10 @@ if __name__ == '__main__': ### command to run form command line: python3.6 frags
                 elif set(no_LOI_pdbs) == set(unique_pdbs):
                     print("{}\t{}".format(seg_id, str(18)), flush = True)
                     log.warning("BioLiP ligands are not LOI for Segment {} of {}".format(str(segment), acc)) # this is because we don't take into account ligands such as lose amino acids
+                    continue
+                elif set(many_chains_pdbs) == set(unique_pdbs):
+                    print("{}\t{}".format(seg_id, str(19)), flush = True)
+                    log.warning("Too many chains for all structures of Segment {} of {}".format(str(segment), acc))
                     continue
                 elif set(bad_fps_pdbs) == set(unique_pdbs):
                     print("{}\t{}".format(seg_id, str(16)), flush = True)
