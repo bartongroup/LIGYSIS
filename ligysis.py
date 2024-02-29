@@ -262,13 +262,10 @@ def parse_pdb_file(pdb_path, fmt):
     :param pdb_path:
     :return: biopython's structure object
     """
-    #if fmt == "pdb":
-    #    parser = PDB.PDBParser()
-    #elif fmt == "cif":
     parser = PDB.MMCIFParser()
-        
     pdb_id, _ = os.path.splitext(os.path.basename(pdb_path))
     structure = parser.get_structure(pdb_id, pdb_path)
+    
     return structure
 
 class HighestOccupancy(Select):
@@ -417,7 +414,7 @@ def get_simple_pdbs(trans_dir, simple_dir):
         pass
     else:
         shutil.copy(cif_files[0], first_simple)
-    for cif_in in cif_files[1:]:
+    for cif_in in cif_files[1:]: #0 of os.listdir(trans_dir) will be the one showing the ribbon
         pdb_id = os.path.basename(cif_in)[:6]
         cif_out = os.path.join(simple_dir, os.path.basename(cif_in))
         if os.path.isfile(cif_out):
@@ -608,7 +605,7 @@ def map_values(row, pdb2up, pdb_id):
     try:
         return pdb2up[pdb_id][row['orig_label_asym_id_end']][row['auth_seq_id_end']]
     except KeyError:
-        log.warning("Residue {} {} has no mapping to UniProt".format(row['orig_label_asym_id_end'], row['auth_seq_id_end']))
+        log.debug("Residue {} {} has no mapping to UniProt".format(row['orig_label_asym_id_end'], row['auth_seq_id_end']))
         return np.nan # if there is no mapping, return NaN
         
 def map_values_dssp(row, pdb2up, pdb_id, remap_dict):
@@ -626,6 +623,10 @@ def process_arpeggio_df(arp_df, pdb_id, ligand_names, chain_remap_dict, pdb2up, 
     format to extract fingerprings. Also filter out
     non-relevant interactions.
     """
+
+    #print(pdb_id)
+
+    #print(arp_df)
     
     arp_df_end_expanded = arp_df['end'].apply(pd.Series)
     arp_df_bgn_expanded = arp_df['bgn'].apply(pd.Series)
@@ -634,9 +635,16 @@ def process_arpeggio_df(arp_df, pdb_id, ligand_names, chain_remap_dict, pdb2up, 
     arp_df = arp_df.join(arp_df_bgn_expanded, lsuffix = "_end", rsuffix = "_bgn").drop(labels='bgn', axis = 1)
 
     inter_df = arp_df.query('interacting_entities == "INTER" & type == "atom-atom"').copy().reset_index(drop = True)
+    
     inter_df = inter_df.query('label_comp_id_bgn in @pdb_resnames or label_comp_id_end in @pdb_resnames').copy().reset_index(drop = True) # filtering out ligand-ligand interactions
+    if inter_df.empty:
+        log.warning("No protein-ligand interaction  for {}".format(pdb_id))
+        return inter_df, "no-PL-inters"
+    
     inter_df = inter_df.query('label_comp_id_bgn in @ligand_names or label_comp_id_end in @ligand_names').copy().reset_index(drop = True) # filtering out non-LOI interactions (only to avoid re-running Arpeggio, once it has been run with wrong selection)
 
+    #print(inter_df)
+    
     switched_df = switch_columns(inter_df, ligand_names)
 
     #print(switched_df)
@@ -647,6 +655,8 @@ def process_arpeggio_df(arp_df, pdb_id, ligand_names, chain_remap_dict, pdb2up, 
 
     # Add original label_asym_id from asymmetric unit
     switched_df["orig_label_asym_id_end"] = switched_df.auth_asym_id_end.map(chain_remap_dict)
+
+    #print(switched_df)
 
     # Apply the function and create a new column
     switched_df["UniProt_ResNum_end"] = switched_df.apply(lambda row: map_values(row, pdb2up, pdb_id), axis=1)
@@ -667,6 +677,8 @@ def process_arpeggio_df(arp_df, pdb_id, ligand_names, chain_remap_dict, pdb2up, 
         return segment_inters, "no-SOI-inters"
     
     segment_inters = segment_inters.sort_values(by=["auth_asym_id_end", "UniProt_ResNum_end", "auth_atom_id_end"]).reset_index(drop = True)
+
+    #print(segment_inters)
     
     return segment_inters, "OK"
 
@@ -715,7 +727,7 @@ def determine_color(interactions):
         colors = [interaction_to_color[interaction] for interaction in interactions if interaction in interaction_to_color and interaction not in undef]
         return colors[0] if colors else None  # Return the first color found, or None if no match
     
-def get_arpeggio_fingerprints(pdb_ids, assembly_cif_dir, asymmetric_dir, arpeggio_dir, chain_remapping_dir, cif_sifts_dir, ligs_dict, acc, segment_start, segment_end, override = False):
+def get_arpeggio_fingerprints(pdb_ids, assembly_cif_dir, asymmetric_dir, arpeggio_dir, chain_remapping_dir, cif_sifts_dir, ligs_dict, acc, segment_start, segment_end, override = False, override_arpeggio = False):
     """
     Given a series of PDB IDs, runs Arpeggion on the preferred assemblies
     of those IDs, also gathers chain remapping data, in order to do some
@@ -737,7 +749,7 @@ def get_arpeggio_fingerprints(pdb_ids, assembly_cif_dir, asymmetric_dir, arpeggi
         
         remapping_out = os.path.join(chain_remapping_dir, basename + "_chain_remapping.pkl")
         
-        input_struct = os.path.join(asymmetric_dir, "{}.cif".format(pdb_id))#os.path.join(cfg.db_root, cfg.db_pdbx, "{}.cif".format(pdb_id))
+        input_struct = os.path.join(asymmetric_dir, "{}.cif".format(pdb_id))
         
         pdb2up_out = os.path.join(cif_sifts_dir, "{}_pdb2up.pkl".format(pdb_id))
         up2pdb_out = os.path.join(cif_sifts_dir, "{}_up2pdb.pkl".format(pdb_id))
@@ -745,7 +757,8 @@ def get_arpeggio_fingerprints(pdb_ids, assembly_cif_dir, asymmetric_dir, arpeggi
         
 
         if ligs_dict[pdb_id] == []:
-            log.warning("No LOI in assembly for {}".format(pdb_id)) 
+            log.warning("No LOI in assembly for {}".format(pdb_id))
+            fp_status[pdb_id] = "No-LOI"
             continue
 
         lig_sel = " ".join(["/{}/{}/".format(el[1], el[2]) for el in ligs_dict[pdb_id]])
@@ -753,10 +766,11 @@ def get_arpeggio_fingerprints(pdb_ids, assembly_cif_dir, asymmetric_dir, arpeggi
         ligand_names = list(set([el[0] for el in ligs_dict[pdb_id]]))
 
         arpeggio_out = os.path.join(arpeggio_dir, basename + ".json")
-        if override or not os.path.isfile(arpeggio_out):
+        if override_arpeggio or not os.path.isfile(arpeggio_out): # changed from override to override_arpeggio, to avoid re-running Arpeggio when it has already been run
             ec, cmd = run_arpeggio(assembly_path, lig_sel, arpeggio_dir)
             if ec != 0:
                 log.error("Arpeggio failed for {} with {}".format(pdb_id, cmd))
+                fp_status[pdb_id] = "Arpeggio-fail"
                 continue
         else:
             log.debug("{} already exists!".format(arpeggio_out))
@@ -811,6 +825,9 @@ def get_arpeggio_fingerprints(pdb_ids, assembly_cif_dir, asymmetric_dir, arpeggi
 
             fp_status[pdb_id] = fp_stat
 
+            #if fp_stat != "OK":
+            #    continue
+
             #print(proc_inters)
 
             coords_dict = generate_dictionary(assembly_path)
@@ -827,15 +844,28 @@ def get_arpeggio_fingerprints(pdb_ids, assembly_cif_dir, asymmetric_dir, arpeggi
 
         proc_inters_indexed = proc_inters.set_index(["label_comp_id_bgn", "auth_asym_id_bgn", "auth_seq_id_bgn"])
 
-        #print(proc_inters_indexed)
+       #print(proc_inters_indexed)
         
         for el in ligs_dict[pdb_id]:
             try:
-                lig_rows = proc_inters_indexed.loc[el, :] # Happens for 7bf3 (all aa binding MG are artificial N-term), also for low-occuoancy ligands? e.g., 5srs, 5sq5
+                lig_rows = proc_inters_indexed.loc[[el], :].copy()  # Happens for 7bf3 (all aa binding MG are artificial N-term), also for low-occuoancy ligands? e.g., 5srs, 5sq5
+                #print(lig_rows)
+
+                #if pdb_id == "8dbs":
+                #    print(el, lig_rows)
+
+                if lig_rows.isnull().values.any():
+                    log.warning("No interactions for ligand {} in {}".format(el, pdb_id))
+                    continue
+
+                ###### CHECK IF LIGAND FINGERPRINT IS EMPTY ######
+                lig_rows.UniProt_ResNum_end = lig_rows.UniProt_ResNum_end.astype(int)
                 lig_fp = lig_rows.UniProt_ResNum_end.unique().tolist()
+                #print(lig_fp)
                 lig_key = "{}_".format(pdb_id) + "_".join([str(l) for l in el])
                 fp_dict[lig_key] = lig_fp
             except:
+                #raise #ValueError("No interactions for ligand {} in {}".format(el, pdb_id))
                 log.warning("Empty fingerprint for ligand {} in {}".format(el, pdb_id))
                 continue
             
@@ -1498,12 +1528,14 @@ if __name__ == '__main__': ### command to run form command line: python3.6 frags
     parser.add_argument("up_acc", type = str, help = "UniProt accession number of the protein of interest.")
     parser.add_argument("--override", help = "Override any previously generated files.", action = "store_true")
     parser.add_argument("--override_variants", help = "Override any previously generated files (ONLY VARIANTS SECTION).", action = "store_true")
+    parser.add_argument("--override_arpeggio", help = "Override any previously generated files (ONLY ARPEGGIO RAW SECTION).", action = "store_true")
 
     args = parser.parse_args()
 
     acc = args.up_acc
     override = args.override
     override_variants = args.override_variants
+    override_arpeggio = args.override_arpeggio
 
     for arg, value in sorted(vars(args).items()):
         log.info("Argument %s: %r", arg, value)
@@ -1608,10 +1640,6 @@ if __name__ == '__main__': ### command to run form command line: python3.6 frags
                 variants_dir,
                 results_dir,
             ]
-            
-            # for dirr in dirs:
-            #     if not os.path.isdir(dirr):
-            #         os.mkdir(dirr)
 
             ### CHECKS IF FINAL RESULTS TABLE EXISTS, AND IF SO, SKIPS TO NEXT SEGMENT
 
@@ -1720,8 +1748,9 @@ if __name__ == '__main__': ### command to run form command line: python3.6 frags
 
             ### OBTAINING PROTEIN-LIGAND FINGERPRINTS
 
-            fps_out = os.path.join(results_dir, "{}_{}_{}_{}_ligs_fingerprints.pkl".format(acc, str(segment), experimental_methods, str(resolution))) #fps: will stand for fingerprints. update with main_dir and so on.
-
+            fps_out = os.path.join(results_dir, "{}_{}_{}_{}_ligs_fingerprints.pkl".format(acc, str(segment), experimental_methods, str(resolution))) 
+            fps_status_out = os.path.join(results_dir, "{}_{}_{}_{}_fps_status.pkl".format(acc, str(segment), experimental_methods, str(resolution))) #fps: will stand for fingerprints
+            no_mapping_pdbs_out = os.path.join(results_dir, "{}_{}_{}_{}_no_mapping_pdbs.pkl".format(acc, str(segment), experimental_methods, str(resolution))) 
             ######################### NEW FROM 22/01/2024 RESTRUCTURE: USING ARPEGGIO #########################
 
             assembly_files = download_and_move_files(unique_pdbs, ASSEMBLY_FOLDER, bio = True) # fetching assembly from API using ProIntVar
@@ -1737,16 +1766,26 @@ if __name__ == '__main__': ### command to run form command line: python3.6 frags
 
             asym_files = download_and_move_files(unique_pdbs, ASYM_FOLDER) # fetching updated CIF from API using ProIntVar. These are actually the ones we want for superposition, so all good.
 
-            if override or not os.path.isfile(fps_out):
+            if override or not os.path.isfile(fps_out) or not os.path.isfile(fps_status_out) or not os.path.isfile(no_mapping_pdbs_out):
 
-                lig_fps, no_mapping_pdbs, fp_status = get_arpeggio_fingerprints(unique_pdbs, ASSEMBLY_FOLDER, ASYM_FOLDER, arpeggio_dir, CHAIN_REMAPPING_FOLDER, CIF_SIFTS_FOLDER, ligs_dict, acc, segment_start, segment_end, override) ### TODO IF WANTED: IMPLEMENT ONLY-SIDECHAIN INTERACTIONS ###
+                lig_fps, no_mapping_pdbs, fp_status = get_arpeggio_fingerprints(unique_pdbs, ASSEMBLY_FOLDER, ASYM_FOLDER, arpeggio_dir, CHAIN_REMAPPING_FOLDER, CIF_SIFTS_FOLDER, ligs_dict, acc, segment_start, segment_end, override, override_arpeggio) ### TODO IF WANTED: IMPLEMENT ONLY-SIDECHAIN INTERACTIONS ###
                 dump_pickle(lig_fps, fps_out)
+                dump_pickle(fp_status, fps_status_out)
+                dump_pickle(no_mapping_pdbs, no_mapping_pdbs_out)
+                log.info("Ligand fingerprints obtained")
             else:
-                with open(fps_out, "rb") as f:
-                    lig_fps = pickle.load(f) # stands for ligand fingerprints
+                lig_fps = load_pickle(fps_out)
+                fp_status = load_pickle(fps_status_out)
+                no_mapping_pdbs = load_pickle(no_mapping_pdbs_out)
+                log.debug("Ligand fingerprints loaded")
+
 
 
             bad_fps_pdbs = [k for k, v in fp_status.items() if v != "OK"]
+
+            arpeggio_error_pdbs = [k for k, v in fp_status.items() if v == "Arpeggio-fail"]
+
+            no_LOI_pdbs = [k for k, v in fp_status.items() if v == "No-LOI"]
             ######################### NEW FROM 22/01/2024 RESTRUCTURE: USING ARPEGGIO #########################
 
             ### CHECKING THAT THERE ARE FINGERPRINTS. THERE SHOULD ALWAYS BE AT THIS POINT.
@@ -1756,6 +1795,14 @@ if __name__ == '__main__': ### command to run form command line: python3.6 frags
                     print("{}\t{}".format(seg_id, str(14)), flush = True)
                     log.warning("None of the structures had SIFTS mappings for Segment {} of {}".format(str(segment), acc))
                     continue
+                elif set(arpeggio_error_pdbs) == set(unique_pdbs):
+                    print("{}\t{}".format(seg_id, str(17)), flush = True)
+                    log.warning("Arpeggio failed for all structures of Segment {} of {}".format(str(segment), acc))
+                    continue
+                elif set(no_LOI_pdbs) == set(unique_pdbs):
+                    print("{}\t{}".format(seg_id, str(18)), flush = True)
+                    log.warning("BioLiP ligands are not LOI for Segment {} of {}".format(str(segment), acc)) # this is because we don't take into account ligands such as lose amino acids
+                    continue
                 elif set(bad_fps_pdbs) == set(unique_pdbs):
                     print("{}\t{}".format(seg_id, str(16)), flush = True)
                     log.warning("None of the structures had interactions of interest for Segment {} of {}".format(str(segment), acc))
@@ -1764,19 +1811,6 @@ if __name__ == '__main__': ### command to run form command line: python3.6 frags
                     print("{}\t{}".format(seg_id, str(9)), flush = True)
                     log.warning("ACHTUNG! No fingerprints found for Segment {} of {}".format(str(segment), acc))
                     continue
-
-            # ### FILTER OUT NON-SEGMENT LIGAND INTERACTIONS (not necessary with Arpeggio)
-
-            # n_acc_chain_inters = sum([len(inters) for inters in lig_fps.values()]) # number of ligands interactions with target UniProt Accession chains for all structures in a segment
-            
-            # if n_acc_chain_inters == 0: #there are ligands bound, but not to the target protein chains, across all ligands bound in all structures for a segment
-            #     print("{}\t{}".format(seg_id, str(10)), flush = True)
-            #     log.warning("None of the ligands in Segment {} of {} interact with any of the target chains".format(str(segment), acc))
-            #     continue
-
-            log.info("Ligand fingerprints obtained for Segment {} of {}".format(str(segment), acc))
-
-            log.info("PDB-UniProt mappings performed for Segment {} of {}".format(str(segment), acc))
 
             ### CLUSTERING LIGANDS INTO BINDING SITES
 
@@ -1882,6 +1916,8 @@ if __name__ == '__main__': ### command to run form command line: python3.6 frags
                 membership = load_pickle(membership_out)
                 log.debug("Loaded binding site membership")
 
+            #print(lig_fps_filt2_sifted)
+
             if override or not os.path.isfile(cluster_ress_out):
                 cluster_ress = get_all_cluster_ress(membership, lig_fps_filt2_sifted) # residues that form each LBS 
                 dump_pickle(cluster_ress, cluster_ress_out) 
@@ -1889,6 +1925,9 @@ if __name__ == '__main__': ### command to run form command line: python3.6 frags
             else:
                 cluster_ress = load_pickle(cluster_ress_out)
                 log.debug("Loaded binding site composition")
+
+
+            #print(cluster_ress)
 
             if override or not os.path.isfile(bs_mm_dict_out):
                 bs_ress_membership_dict = get_residue_bs_membership(cluster_ress)
@@ -2188,7 +2227,9 @@ if __name__ == '__main__': ### command to run form command line: python3.6 frags
             else:
                 log.warning("Results table will not contain DSSP columns for Segment {} of {}".format(str(segment), acc))
                 pass
-
+            
+            #print(bs_ress_membership_dict)
+            #print(mapped_data)
             mapped_data["binding_sites"] = mapped_data.UniProt_ResNum.map(bs_ress_membership_dict)
             mapped_data.to_pickle(final_table_out)
 
