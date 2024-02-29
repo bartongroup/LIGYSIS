@@ -1626,8 +1626,6 @@ if __name__ == '__main__': ### command to run form command line: python3.6 frags
     segment_chains = get_segment_membership(supp_data, acc)
     segment_pdbs = {k: list(set([vv.split("_")[0] for vv in v])) for k, v in segment_chains.items()}
 
-    #print(segment_pdbs)
-
     ### CREATES WORKING DIRECTORY FOR acc
 
     wd = os.path.join(OUTPUT_FOLDER, acc)
@@ -1638,9 +1636,6 @@ if __name__ == '__main__': ### command to run form command line: python3.6 frags
     ### STARTING LOOPING THROUGH ALL PROTEIN SEGMENTS
 
     for segment in segments:
-
-        # if segment != 6: ### REMOVE!!!
-        #      continue
 
         seg_id = "{}_{}".format(acc, str(segment))
         segment_start = supp_data.loc[segment, acc]["segment_start"]
@@ -1699,7 +1694,6 @@ if __name__ == '__main__': ### command to run form command line: python3.6 frags
                 print("{}\t{}".format(seg_id, str(6)), flush = True)
                 log.warning("Segment {} of {} does not present any ligand-binding structures".format(str(segment), acc))
                 continue
-
 
             for dirr in dirs:
                 if not os.path.isdir(dirr):
@@ -1808,8 +1802,6 @@ if __name__ == '__main__': ### command to run form command line: python3.6 frags
                 fp_status = load_pickle(fps_status_out)
                 no_mapping_pdbs = load_pickle(no_mapping_pdbs_out)
                 log.debug("Ligand fingerprints loaded")
-
-
 
             bad_fps_pdbs = [k for k, v in fp_status.items() if v != "OK"]
 
@@ -1953,8 +1945,6 @@ if __name__ == '__main__': ### command to run form command line: python3.6 frags
                 membership = load_pickle(membership_out)
                 log.debug("Loaded binding site membership")
 
-            #print(lig_fps_filt2_sifted)
-
             if override or not os.path.isfile(cluster_ress_out):
                 cluster_ress = get_all_cluster_ress(membership, lig_fps_filt2_sifted) # residues that form each LBS 
                 dump_pickle(cluster_ress, cluster_ress_out) 
@@ -1962,9 +1952,6 @@ if __name__ == '__main__': ### command to run form command line: python3.6 frags
             else:
                 cluster_ress = load_pickle(cluster_ress_out)
                 log.debug("Loaded binding site composition")
-
-
-            #print(cluster_ress)
 
             if override or not os.path.isfile(bs_mm_dict_out):
                 bs_ress_membership_dict = get_residue_bs_membership(cluster_ress)
@@ -2264,9 +2251,7 @@ if __name__ == '__main__': ### command to run form command line: python3.6 frags
             else:
                 log.warning("Results table will not contain DSSP columns for Segment {} of {}".format(str(segment), acc))
                 pass
-            
-            #print(bs_ress_membership_dict)
-            #print(mapped_data)
+        
             mapped_data["binding_sites"] = mapped_data.UniProt_ResNum.map(bs_ress_membership_dict)
             mapped_data.to_pickle(final_table_out)
 
@@ -2278,9 +2263,6 @@ if __name__ == '__main__': ### command to run form command line: python3.6 frags
             print("{}\t{}".format(seg_id, str(1)), flush = True)
             log.error("Segment {} of {} failed due to {}".format(str(segment), acc, e))
             raise
-
-        #log.info("Only running for Segment {}. Breaking now.".format(str(segment)))
-        # break
 
     log.info("THE END")
 
