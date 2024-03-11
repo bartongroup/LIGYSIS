@@ -22,3 +22,6 @@ biolip_up_ids_15000_accs.pkl
 ligysis_flask/
 sample_colors_hex.pkl
 ./run_ligysis_V2.sh
+LIGYSIS_V3_error_accs_1.txt
+LIGYSIS_V3_error_accs_2.txt
+LIGYSIS_V3_unproc_accs_1.txt

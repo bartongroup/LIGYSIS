@@ -9,6 +9,7 @@ import math
 import time
 import scipy
 import pickle
+import random
 import shutil
 import logging
 import argparse
@@ -126,8 +127,8 @@ i_cols = [
 ]
 
 interaction_to_color = { # following Arpeggio's colour scheme
-    # clash
-    # covalent
+    'clash': '#000000',
+    'covalent':'#999999',
     'vdw_clash': '#999999',
     'vdw': '#999999',
     'proximal': '#999999',
@@ -135,7 +136,7 @@ interaction_to_color = { # following Arpeggio's colour scheme
     'weak_hbond': '#fc7600',
     'xbond': '#3977db', #halogen bond
     'ionic': '#e3e159',
-    'metal': '#800080',
+    'metal_complex': '#800080',
     'aromatic': '#00ccff',
     'hydrophobic': '#006633',
     'carbonyl': '#ff007f',
@@ -266,34 +267,39 @@ def parse_pdb_file(pdb_path, fmt):
     """
     parser = PDB.MMCIFParser()
     pdb_id, _ = os.path.splitext(os.path.basename(pdb_path))
-    structure = parser.get_structure(pdb_id, pdb_path)
-    
-    return structure
+    try:
+        structure = parser.get_structure(pdb_id, pdb_path)
+        return structure
+    except:
+        log.error("Could not parse {}".format(pdb_path)) # A0QSG2 can't parse the structure due to Blank altlocs in duplicate residues
+        return None
 
 class HighestOccupancy(Select):
-    def __init__(self, structure):
+    def __init__(self, structure, chain_id):
         self.structure = structure
+        self.chain_id = chain_id
         self.highest_occupancy_altlocs = self._find_highest_occupancy_altlocs()
 
     def _find_highest_occupancy_altlocs(self):
         highest_occupancy = {}
         for model in self.structure:
             for chain in model:
-                for residue in chain:
-                    for atom in residue:
-                        if atom.element == 'H':
-                            continue  # Skip hydrogen atoms
+                if chain.id == self.chain_id:
+                    for residue in chain:
+                        for atom in residue:
+                            if atom.element == 'H':
+                                continue  # Skip hydrogen atoms
 
-                        if not atom.is_disordered():
-                            continue  # Ignore non-disordered atoms
+                            if not atom.is_disordered():
+                                continue  # Ignore non-disordered atoms
 
-                        atom_id = (residue.get_id(), atom.get_name())
-                        for altloc_id, altloc_atom in atom.child_dict.items():
-                            if altloc_id == ' ':
-                                continue  # Skip the default blank altloc
+                            atom_id = (residue.get_id(), atom.get_name())
+                            for altloc_id, altloc_atom in atom.child_dict.items():
+                                if altloc_id == ' ':
+                                    continue  # Skip the default blank altloc
 
-                            if atom_id not in highest_occupancy or altloc_atom.get_occupancy() > highest_occupancy[atom_id][1]:
-                                highest_occupancy[atom_id] = (altloc_id, altloc_atom.get_occupancy())
+                                if atom_id not in highest_occupancy or altloc_atom.get_occupancy() > highest_occupancy[atom_id][1]:
+                                    highest_occupancy[atom_id] = (altloc_id, altloc_atom.get_occupancy())
 
         return highest_occupancy
 
@@ -306,7 +312,18 @@ class HighestOccupancy(Select):
             return atom.get_altloc() == self.highest_occupancy_altlocs.get(atom_id, (' ', 0))[0]
         else:
             return True  # Accept non-disordered atoms
-        
+
+    def count_accepted_atoms(self):
+        count = 0
+        for model in self.structure:
+            for chain in model:
+                if chain.id == self.chain_id:
+                    for residue in chain:
+                        for atom in residue:
+                            if self.accept_atom(atom):
+                                count += 1
+        return count
+     
 def apply_transformation(structure, matrix, output_path, chain_id, fmt):
     """
     Transforms structure based on the transformation matrix
@@ -333,26 +350,44 @@ def apply_transformation(structure, matrix, output_path, chain_id, fmt):
                         atom.transform(rotation, translation)
     
                 io.set_structure(chain)
-                io.save(output_path, select = HighestOccupancy(structure))
 
-def pdb_transform(pdb_path, output_path, matrix_raw, chain_id, fmt = struc_fmt):
+                high_occ = HighestOccupancy(structure, chain_id)
+                n_high_occ_atoms = high_occ.count_accepted_atoms()
+                # log.info("Number of atoms in chain {} with highest occupancy: {}".format(chain_id, n_high_occ_atoms))
+                io.save(output_path, select = high_occ) # it seems it is MMCIFIO() that is dropping _atom_site.auth_comp_id and _atom_site.auth_atom_id .
+
+def pdb_transform(structure, output_path, matrix_raw, chain_id, fmt = struc_fmt):
     """
     Applies transformation matrix to the PDB file and writes the new PDB to file
     :param pdb_path: path to the input PDB file
     :param matrix_path: path to the transformation matrix file
     :param output_path: path to the output PDB file
     """
-    matrix_rf = fmt_mat_in(matrix_raw)
     
-    structure = parse_pdb_file(pdb_path, fmt)
+    
+    #structure = parse_pdb_file(pdb_path, fmt)
 
+    #if structure == None:
+    #    return 1
+    
+    matrix_rf = fmt_mat_in(matrix_raw)
+
+    #print(pdb_path, output_path, chain_id, fmt, matrix_rf)
     apply_transformation(structure, matrix_rf, output_path, chain_id, fmt) # by default has to be AUTH_ASYM_ID
 
-def transform_all_files(pdb_ids, matrices, struct_chains, auth_chains, asymmetric_dir, trans_dir):
+    # check number of rows in the output file
+    trans_cif = PDBXreader(inputfile = output_path).atoms(format_type = "mmcif", excluded=())
+    # print(len(trans_cif))
+    # print(trans_cif.head())
+
+    return 0
+
+def transform_all_files(pdb_ids, matrices, struct_chains, auth_chains, asymmetric_dir, trans_dir, OVERRIDE_TRANS = False):
     """
     Given a set of PDB IDs, matrices, and chains, transforms
     the coordinates according to a transformation matrix
     """
+    no_trans = [] # capture files that are not transformed
     for i, pdb_id in enumerate(pdb_ids):
         
         asym_cif = os.path.join(asymmetric_dir, "{}.cif".format(pdb_id))
@@ -360,12 +395,35 @@ def transform_all_files(pdb_ids, matrices, struct_chains, auth_chains, asymmetri
         root, ext = os.path.splitext(os.path.basename(asym_cif))
         
         trans_cif = os.path.join(trans_dir, "{}_{}_trans{}".format(root, struct_chains[i], ext))
-   
-        if os.path.isfile(trans_cif):
-            pass
+
+        if OVERRIDE_TRANS or not os.path.isfile(trans_cif):
+            structure = parse_pdb_file(asym_cif, struc_fmt) # by parsing structure here, we only parse it once
+            if structure == None:
+                log.error("{}_{} could not be transformed".format(pdb_id, struct_chains[i]))
+                no_trans.append(pdb_id)
+            else:
+
+                chain_cif = PDBXreader(inputfile = asym_cif).atoms(format_type = "mmcif", excluded=()).query('label_asym_id == @struct_chains[@i]').copy()
+
+                max_occ = chain_cif["occupancy"].max()
+
+                if max_occ < 1.0:
+                    log.warning("Chain {} of {} has low occupancy (<1.0). Not transforming...".format(struct_chains[i], pdb_id))
+                    no_trans.append(pdb_id)
+                    continue
+                # print(chain_cif.head())
+                #print occupancies of chain_cif
+                # print(chain_cif["occupancy"].unique())
+
+                ec = pdb_transform(structure, trans_cif, matrices[i], auth_chains[i], fmt = struc_fmt)
+                if ec == 0:
+                    log.info("{}_{} transformed".format(pdb_id, struct_chains[i]))
+                elif ec == 1:
+                    log.error("{}_{} could not be transformed".format(pdb_id, struct_chains[i]))
+                    no_trans.append(pdb_id)
         else:
-            pdb_transform(asym_cif, trans_cif, matrices[i], auth_chains[i], fmt = struc_fmt)
-            log.info("{}_{} transformed".format(pdb_id, struct_chains[i]))
+            pass
+    return no_trans
 
 ## EXPERIMENTAL DATA AND VALIDATION
 
@@ -403,7 +461,7 @@ def get_experimental_data(pdb_ids, exp_data_dir, out):
 
 ## SIMPLIFYING PDB FILES
 
-def get_simple_pdbs(trans_dir, simple_dir):
+def get_simple_pdbs(trans_dir, simple_dir, OVERRIDE_SIMPLE = False):
     """
     This function simplifies a group of CIF files that have been
     transformed and are superimposed in space. It will only keep the
@@ -412,24 +470,50 @@ def get_simple_pdbs(trans_dir, simple_dir):
     """
     cif_files = [os.path.join(trans_dir, f) for f in os.listdir(trans_dir) if f.endswith("_trans.cif")]
     first_simple = os.path.join(simple_dir, os.path.basename(cif_files[0]))
-    if os.path.isfile(first_simple):
-        pass
-    else:
+
+    if OVERRIDE_SIMPLE or not os.path.isfile(first_simple):
         shutil.copy(cif_files[0], first_simple)
+    else:
+        pass
+
+    # if os.path.isfile(first_simple):
+    #     pass
+    # else:
+    #     shutil.copy(cif_files[0], first_simple)
+
     for cif_in in cif_files[1:]: #0 of os.listdir(trans_dir) will be the one showing the ribbon
         pdb_id = os.path.basename(cif_in)[:6]
         cif_out = os.path.join(simple_dir, os.path.basename(cif_in))
-        if os.path.isfile(cif_out):
+        if OVERRIDE_SIMPLE or not os.path.isfile(cif_out):
+            #delete cif_out if it exists
+            if os.path.isfile(cif_out):
+                os.remove(cif_out)
+            cif_df = PDBXreader(inputfile = cif_in).atoms(format_type = "mmcif", excluded=())
+            hetatm_df = cif_df.query('group_PDB == "HETATM"')
+            if len(hetatm_df) == 0:
+                log.info("No HETATM records in {}".format(pdb_id))
+                continue
+            else:
+                hetatm_df = hetatm_df.replace({"label_alt_id": ""}, " ")
+                w = PDBXwriter(outputfile = cif_out)
+                w.run(hetatm_df, format_type = "mmcif") # category by default is "label". I think this is making 3DMol.js parser not work, as it uses "auth".
+                log.debug("{} simplified".format(pdb_id))
+        else:
             continue
-        cif_df = PDBXreader(inputfile = cif_in).atoms(format_type = "mmcif", excluded=())
-        hetatm_df = cif_df.query('group_PDB == "HETATM"') #[pdb_df.group_PDB == "HETATM"]
-        if len(hetatm_df) == 0:
-            log.info("No HETATM records in {}".format(pdb_id))
-            continue
-        hetatm_df = hetatm_df.replace({"label_alt_id": ""}, " ")
-        w = PDBXwriter(outputfile = cif_out)
-        w.run(hetatm_df, format_type = "mmcif")
-        log.debug("{} simplified".format(pdb_id))
+
+
+        # if os.path.isfile(cif_out):
+        #     continue
+        # # print(cif_in)
+        # cif_df = PDBXreader(inputfile = cif_in).atoms(format_type = "mmcif", excluded=())
+        # hetatm_df = cif_df.query('group_PDB == "HETATM"') #[pdb_df.group_PDB == "HETATM"]
+        # if len(hetatm_df) == 0:
+        #     log.info("No HETATM records in {}".format(pdb_id))
+        #     continue
+        # hetatm_df = hetatm_df.replace({"label_alt_id": ""}, " ")
+        # w = PDBXwriter(outputfile = cif_out)
+        # w.run(hetatm_df, format_type = "mmcif") # category by default is "label". I think this is making 3DMol.js parser not work, as it uses "auth".
+        # log.debug("{} simplified".format(pdb_id))
 
 ## RELATIVE INTERSECTION, AND METRIC FUNCTIONS
 
@@ -490,14 +574,21 @@ def get_SIFTS_from_CIF(cif_df, pdb_id):
     up2pdb = {pdb_id: {}}
     chain2acc = {}
     for chain in df_chains:
-        df_chain = cif_df.query('label_asym_id == @chain & group_PDB == "ATOM" & pdbx_sifts_xref_db_acc != "?"').copy()
+        #print(chain)
+        df_chain = cif_df.query('label_asym_id == @chain & group_PDB == "ATOM" & pdbx_sifts_xref_db_acc != "?" & pdbx_sifts_xref_db_acc != ""').copy()
+        #print(df_chain)
         if df_chain.empty:
             #log.warning("No atoms in chain {} of {}".format(chain, pdb_id))
             continue
         else:
             df_filt = df_chain[i_cols].drop_duplicates()
             df_filt = df_filt.query('pdbx_sifts_xref_db_num != "?"').copy()
-            df_filt.auth_seq_id = df_filt.auth_seq_id.astype(int)
+            try:
+                df_filt.auth_seq_id = df_filt.auth_seq_id.astype(int)
+            except:
+                raise
+                #print(pdb_id, chain, df_filt, df_chain)
+                #sys.exit(0)
             df_filt.pdbx_sifts_xref_db_num = df_filt.pdbx_sifts_xref_db_num.astype(int)
 
             pdb2up[pdb_id][chain] = df_filt.set_index('auth_seq_id')['pdbx_sifts_xref_db_num'].to_dict()
@@ -726,7 +817,7 @@ def determine_color(interactions):
     representation depending on Arpeggio contact
     fingerprint.
     """
-    undef = ['vdw', 'vdw_clash', 'proximal']
+    undef = ['covalent', 'vdw', 'vdw_clash', 'proximal']
     if len(interactions) == 1 and interactions[0] in undef:
         return '#999999'
     else:
@@ -737,7 +828,7 @@ def determine_color(interactions):
             log.critical("No color found for {}".format(interactions))
             return None  # Return the first color found, or None if no match
     
-def get_arpeggio_fingerprints(pdb_ids, assembly_cif_dir, asymmetric_dir, arpeggio_dir, chain_remapping_dir, cif_sifts_dir, ligs_dict, acc, segment_start, segment_end, override = False, override_arpeggio = False):
+def get_arpeggio_fingerprints(pdb_ids, assembly_cif_dir, asymmetric_dir, arpeggio_dir, chain_remapping_dir, cif_sifts_dir, ligs_dict, acc, segment_start, segment_end, OVERRIDE = False, OVERRIDE_ARPEGGIO = False):
     """
     Given a series of PDB IDs, runs Arpeggion on the preferred assemblies
     of those IDs, also gathers chain remapping data, in order to do some
@@ -777,13 +868,13 @@ def get_arpeggio_fingerprints(pdb_ids, assembly_cif_dir, asymmetric_dir, arpeggi
 
         # read assembly and check chain number
         n_chains_assembly = len(PDBXreader(inputfile = assembly_path).atoms(format_type = "mmcif").query('group_PDB == "ATOM"').label_asym_id.unique()) # HARD THRESHOLD. NOT RUNNING ARPEGGIO ON ASSEMBLIES WITH > 50 CHAINS
-        if n_chains_assembly > 49:
-            log.warning("> 50 chains. NOT RUNNING ARPEGGIO for {}!".format(pdb_id))
+        if n_chains_assembly > 24:
+            log.warning("25 chains or more. NOT RUNNING ARPEGGIO for {}!".format(pdb_id))
             fp_status[pdb_id] = "Many-chains"
             continue
 
         arpeggio_out = os.path.join(arpeggio_dir, basename + ".json")
-        if override_arpeggio or not os.path.isfile(arpeggio_out): # changed from override to override_arpeggio, to avoid re-running Arpeggio when it has already been run
+        if OVERRIDE_ARPEGGIO or not os.path.isfile(arpeggio_out): # changed from OVERRIDE to OVERRIDE_ARPEGGIO, to avoid re-running Arpeggio when it has already been run
             ec, cmd = run_arpeggio(assembly_path, lig_sel, arpeggio_dir)
             if ec != 0:
                 log.error("Arpeggio failed for {} with {}".format(pdb_id, cmd))
@@ -798,9 +889,9 @@ def get_arpeggio_fingerprints(pdb_ids, assembly_cif_dir, asymmetric_dir, arpeggi
         #print(arp_df)
         
         arpeggio_proc_df_out = os.path.join(arpeggio_dir, basename + "_proc.pkl")
-        if override or not os.path.isfile(arpeggio_proc_df_out):
+        if OVERRIDE or not os.path.isfile(arpeggio_proc_df_out):
 
-            if override or not os.path.isfile(remapping_out):
+            if OVERRIDE or not os.path.isfile(remapping_out):
 
                 chain_remap_df = extract_assembly_metadata(
                     assembly_path,
@@ -818,12 +909,14 @@ def get_arpeggio_fingerprints(pdb_ids, assembly_cif_dir, asymmetric_dir, arpeggi
             except KeyError:
                 log.error("No chain remapping data for {}".format(pdb_id)) # example: 8gia. No chain remapping data, legacy CIF. Downloaded editing the URL, removing "-".
                 no_mapping_pdbs.append(pdb_id)
+                fp_status[pdb_id] = "No-mapping"
                 continue
 
 
-            if override or not os.path.isfile(pdb2up_out) or not os.path.isfile(up2pdb_out) or not os.path.isfile(chain2acc_out):
+            if OVERRIDE or not os.path.isfile(pdb2up_out) or not os.path.isfile(up2pdb_out) or not os.path.isfile(chain2acc_out):
             
                 asym_cif_df = PDBXreader(inputfile = input_struct).atoms(format_type = "mmcif")
+                #print(input_struct)
                 pdb2up, up2pdb, chain2acc = get_SIFTS_from_CIF(asym_cif_df, pdb_id)
                 dump_pickle(pdb2up, pdb2up_out)
                 dump_pickle(up2pdb, up2pdb_out)
@@ -938,7 +1031,7 @@ def get_lig2chain_dict(simple_dir):
         )[["pdb_id", "label_comp_id", "label_asym_id", "auth_asym_id", "auth_seq_id"]]
 
         for _, row in ligs_df.iterrows():
-            nk = "{}_{}_{}_{}".format(row.pdb_id, row.label_comp_id, row.auth_asym_id, row.auth_seq_id) # this has to be auth_asym_id to match with cluster_id_dict_new and ChimeraX
+            nk = "{}_{}_{}_{}".format(row.pdb_id, row.label_comp_id, row.auth_asym_id, row.auth_seq_id_full) # this has to be auth_asym_id to match with cluster_id_dict_new and ChimeraX. Changing to _FULL
             lig2chain_cif[nk] = simple_file
     return lig2chain_cif
 
@@ -1267,7 +1360,19 @@ def get_freqs(i_col, col):
         else:
             if aa not in non_standard_aas:
                 non_standard_aas[aa] = 0
-            non_standard_aas[aa] += 1
+            else:
+                if aa == "B":
+                    abs_freqs[random.choice(["N", "D"])] += 1     
+                elif aa == "J":
+                    abs_freqs[random.choice(["L", "I"])] += 1      
+                if aa == "O":
+                    abs_freqs["K"] += 1
+                elif aa == "U":
+                    abs_freqs["C"] += 1
+                elif aa == "Z":
+                    abs_freqs[random.choice(["Q", "E"])] += 1
+                else:
+                    non_standard_aas[aa] += 1
     all_ns_aas = sum(non_standard_aas.values())
     if all_ns_aas != 0:
         log.warning("Column {} presents non-standard AAs: {}".format(str(i_col), non_standard_aas))
@@ -1559,13 +1664,19 @@ if __name__ == '__main__': ### command to run form command line: python3.6 frags
     parser.add_argument("--override", help = "Override any previously generated files.", action = "store_true")
     parser.add_argument("--override_variants", help = "Override any previously generated files (ONLY VARIANTS SECTION).", action = "store_true")
     parser.add_argument("--override_arpeggio", help = "Override any previously generated files (ONLY ARPEGGIO RAW SECTION).", action = "store_true")
+    parser.add_argument("--override_trans", help = "Override any previously generated files (ONLY TRANSFORMATION).", action = "store_true")
+    parser.add_argument("--override_simple", help = "Override any previously generated files (ONLY CIF SIMPLIFICATION).", action = "store_true")
+    parser.add_argument("--override_dssp", help = "Override any previously generated files (ONLY DSSP SECTION).", action = "store_true")
 
     args = parser.parse_args()
 
     acc = args.up_acc
-    override = args.override
-    override_variants = args.override_variants
-    override_arpeggio = args.override_arpeggio
+    OVERRIDE = args.override
+    OVERRIDE_VARIANTS = args.override_variants
+    OVERRIDE_ARPEGGIO = args.override_arpeggio
+    OVERRIDE_TRANS = args.override_trans
+    OVERRIDE_SIMPLE = args.override_simple
+    OVERRIDE_DSSP = args.override_dssp
 
     for arg, value in sorted(vars(args).items()):
         log.info("Argument %s: %r", arg, value)
@@ -1573,7 +1684,7 @@ if __name__ == '__main__': ### command to run form command line: python3.6 frags
     ### RETRIEVES ALL SUPERPOSITION MATRICES FOR PDB IDS IN acc, EXCEPT IF THERE ARE NOT ANY SOLVED STRUCTURES
 
     supp_mat_out = os.path.join(MATS_FOLDER, "{}_supp_mat.json".format(acc)) # had to change to json because of pickle issue
-    if os.path.isfile(supp_mat_out) and not override:
+    if os.path.isfile(supp_mat_out) and not OVERRIDE:
         matrices_df = pd.read_json(supp_mat_out, convert_axes = False, dtype = False)
         log.info("Matrix table was read for {} and contains {} chains".format(acc, str(len(matrices_df))))
     else:
@@ -1602,7 +1713,7 @@ if __name__ == '__main__': ### command to run form command line: python3.6 frags
     ### READING SUPERPOSITION DATA FROM GRAPH-API. CONTAINS INFO ABOUT SEGMENTS.
 
     segment_data_out = os.path.join(SEGMENT_FOLDER, "{}_segments.json".format(acc)) # had to change to json because of pickle issue
-    if os.path.isfile(segment_data_out) and not override:
+    if os.path.isfile(segment_data_out) and not OVERRIDE:
         supp_data = pd.read_json(segment_data_out, convert_axes = False, dtype = False)
         log.info("Segment data is being read from json file")
     else:
@@ -1626,14 +1737,14 @@ if __name__ == '__main__': ### command to run form command line: python3.6 frags
     segment_chains = get_segment_membership(supp_data, acc)
     segment_pdbs = {k: list(set([vv.split("_")[0] for vv in v])) for k, v in segment_chains.items()}
 
-    ### CREATES WORKING DIRECTORY FOR acc
+    ### CREATES WORKING DIRECTORY FOR ACC
 
     wd = os.path.join(OUTPUT_FOLDER, acc)
 
     if not os.path.isdir(wd):
         os.mkdir(wd)
 
-    ### STARTING LOOPING THROUGH ALL PROTEIN SEGMENTS
+    ### LOOPING THROUGH ALL PROTEIN SEGMENTS
 
     for segment in segments:
 
@@ -1669,7 +1780,7 @@ if __name__ == '__main__': ### command to run form command line: python3.6 frags
             ### CHECKS IF FINAL RESULTS TABLE EXISTS, AND IF SO, SKIPS TO NEXT SEGMENT
 
             final_table_out = os.path.join(results_dir, "{}_{}_{}_{}_results_table.pkl".format(acc, str(segment), experimental_methods, str(resolution)))
-            if os.path.isfile(final_table_out) and not override:
+            if os.path.isfile(final_table_out) and not OVERRIDE:
                 print("{}\t{}".format(seg_id, str(0)), flush = True)
                 log.info("Results available for Segment {} of {}".format(str(segment), acc))
                 continue
@@ -1695,6 +1806,31 @@ if __name__ == '__main__': ### command to run form command line: python3.6 frags
                 log.warning("Segment {} of {} does not present any ligand-binding structures".format(str(segment), acc))
                 continue
 
+            ### REMOVING DIRECTORIES BASED ON OVERRIDE FLAGS
+            
+            if OVERRIDE_ARPEGGIO:
+                if os.path.isdir(arpeggio_dir):
+                    shutil.rmtree(arpeggio_dir, ignore_errors = True)
+                    log.info("Removed ARPEGGIO directory for Segment {} of {}".format(str(segment), acc))
+            if OVERRIDE_TRANS:
+                if os.path.isdir(trans_dir):
+                    shutil.rmtree(trans_dir)
+                    log.info("Removed TRANS directory for Segment {} of {}".format(str(segment), acc))
+            if OVERRIDE_SIMPLE:
+                if os.path.isdir(simple_dir):
+                    shutil.rmtree(simple_dir)
+                    log.info("Removed SIMPLE directory for Segment {} of {}".format(str(segment), acc))
+            if OVERRIDE_VARIANTS:
+                if os.path.isdir(variants_dir):
+                    shutil.rmtree(variants_dir)
+                    log.info("Removed VARIANTS directory for Segment {} of {}".format(str(segment), acc))
+            if OVERRIDE_DSSP:
+                if os.path.isdir(dssp_dir):
+                    shutil.rmtree(dssp_dir)
+                    log.info("Removed DSSP directory for Segment {} of {}".format(str(segment), acc))
+
+            ### CREATING SEGMENT DIRECTORIES
+
             for dirr in dirs:
                 if not os.path.isdir(dirr):
                     os.mkdir(dirr)
@@ -1705,7 +1841,7 @@ if __name__ == '__main__': ### command to run form command line: python3.6 frags
 
             unique_pdbs = list(set(pdb_ids)) # this is to avoid querying the same pdb multiple times
 
-            if override or not os.path.isfile(experimental_out):
+            if OVERRIDE or not os.path.isfile(experimental_out):
                 exp_data_df = get_experimental_data(unique_pdbs, EXP_FOLDER, experimental_out)
                 log.info("Obtained experimental data")
             else:
@@ -1780,7 +1916,7 @@ if __name__ == '__main__': ### command to run form command line: python3.6 frags
             assembly_files = download_and_move_files(unique_pdbs, ASSEMBLY_FOLDER, bio = True) # fetching assembly from API using ProIntVar
 
             ligs_dict_out = os.path.join(results_dir, "{}_{}_{}_{}_ligs_dict.pkl".format(acc, str(segment), experimental_methods, str(resolution)))
-            if override or not os.path.isfile(ligs_dict_out):
+            if OVERRIDE or not os.path.isfile(ligs_dict_out):
                 ligs_dict = get_loi_data_from_assembly(assembly_files, biolip_dict, acc)
                 dump_pickle(ligs_dict, ligs_dict_out)
                 log.info("Ligand data obtained")
@@ -1790,9 +1926,9 @@ if __name__ == '__main__': ### command to run form command line: python3.6 frags
 
             asym_files = download_and_move_files(unique_pdbs, ASYM_FOLDER) # fetching updated CIF from API using ProIntVar. These are actually the ones we want for superposition, so all good.
 
-            if override or not os.path.isfile(fps_out) or not os.path.isfile(fps_status_out) or not os.path.isfile(no_mapping_pdbs_out):
+            if OVERRIDE or not os.path.isfile(fps_out) or not os.path.isfile(fps_status_out) or not os.path.isfile(no_mapping_pdbs_out):
 
-                lig_fps, no_mapping_pdbs, fp_status = get_arpeggio_fingerprints(unique_pdbs, ASSEMBLY_FOLDER, ASYM_FOLDER, arpeggio_dir, CHAIN_REMAPPING_FOLDER, CIF_SIFTS_FOLDER, ligs_dict, acc, segment_start, segment_end, override, override_arpeggio) ### TODO IF WANTED: IMPLEMENT ONLY-SIDECHAIN INTERACTIONS ###
+                lig_fps, no_mapping_pdbs, fp_status = get_arpeggio_fingerprints(unique_pdbs, ASSEMBLY_FOLDER, ASYM_FOLDER, arpeggio_dir, CHAIN_REMAPPING_FOLDER, CIF_SIFTS_FOLDER, ligs_dict, acc, segment_start, segment_end, OVERRIDE, OVERRIDE_ARPEGGIO) ### TODO IF WANTED: IMPLEMENT ONLY-SIDECHAIN INTERACTIONS ###
                 dump_pickle(lig_fps, fps_out)
                 dump_pickle(fp_status, fps_status_out)
                 dump_pickle(no_mapping_pdbs, no_mapping_pdbs_out)
@@ -1853,7 +1989,7 @@ if __name__ == '__main__': ### command to run form command line: python3.6 frags
             log.info("There are {} relevant ligands for Segment {} of {}".format(str(n_ligs), str(segment), acc))
             irel_mat_out = os.path.join(results_dir, "{}_{}_{}_{}_irel_matrix.pkl".format(acc, str(segment), experimental_methods, str(resolution)))
 
-            if override or not os.path.isfile(irel_mat_out):
+            if OVERRIDE or not os.path.isfile(irel_mat_out):
                 irel_matrix = get_intersect_rel_matrix(lig_sifted_inters) # this is a measure of similarity, probs want to save this
                 dump_pickle(irel_matrix, irel_mat_out)
                 log.info("Calcualted intersection matrix")
@@ -1877,13 +2013,18 @@ if __name__ == '__main__': ### command to run form command line: python3.6 frags
 
             asym_cif_files = [os.path.join(ASYM_FOLDER, "{}.cif") for pdb_id in unique_pdbs] # using asymmetric unit just for superposition
 
-            transform_all_files(pdb_ids, matrices, struct_chains, auth_chains, ASYM_FOLDER, trans_dir)
+            no_trans_pdbs = transform_all_files(pdb_ids, matrices, struct_chains, auth_chains, ASYM_FOLDER, trans_dir, OVERRIDE_TRANS)
+
+            if no_trans_pdbs == pdb_ids:
+                print("{}\t{}".format(seg_id, str(20)), flush = True)
+                log.warning("None of the structures were transformed for Segment {} of {}".format(str(segment), acc))
+                continue
 
             log.info("Structures cleaned and transformed for Segment {} of {}".format(str(segment), acc))
 
             ### SIMPLIFYING PDB FILES (1 MODEL PROTEIN COORDINATES + HETATM FOR THE REST OF THEM)
 
-            get_simple_pdbs(trans_dir, simple_dir) # right now, does not print ligands if they are actual amino acids. Could fix passing ligand data for each structure. fingerprints dict
+            get_simple_pdbs(trans_dir, simple_dir, OVERRIDE_SIMPLE) # right now, does not print ligands if they are actual amino acids. Could fix passing ligand data for each structure. fingerprints dict
 
             log.info("Structures simplified for Segment {} of {}".format(str(segment), acc))
 
@@ -1898,7 +2039,7 @@ if __name__ == '__main__': ### command to run form command line: python3.6 frags
                 cluster_id_dict_new[new_k] = v # in here, we will re-write k-v pairs when different ligands are mapped back to same orig chain (they should hace same BS ID)
 
             lig2chain_out = os.path.join(results_dir, "{}_{}_{}_{}_{}_{}.lig2chain.pkl".format(acc, str(segment), experimental_methods, str(resolution), lig_clust_method, lig_clust_dist))
-            if override or not os.path.isfile(lig2chain_out):
+            if OVERRIDE or not os.path.isfile(lig2chain_out):
                 lig2chain_cif = get_lig2chain_dict(simple_dir)
                 dump_pickle(lig2chain_cif, lig2chain_out)
                 log.info("Ligand to chain mapping dictionary generated")
@@ -1908,7 +2049,7 @@ if __name__ == '__main__': ### command to run form command line: python3.6 frags
 
             attr_out = os.path.join(results_dir, "{}_{}_{}_{}_{}_{}.defattr".format(acc, str(segment), experimental_methods, str(resolution), lig_clust_method, lig_clust_dist))
 
-            if override or not os.path.isfile(attr_out):
+            if OVERRIDE or not os.path.isfile(attr_out):
                 
                order_dict = write_chimeraX_attr(cluster_id_dict_new, lig2chain_cif, simple_dir, attr_out) # this actually needs to be simplified PDBs, not transformed ones ???
 
@@ -1918,18 +2059,11 @@ if __name__ == '__main__': ### command to run form command line: python3.6 frags
 
             chX_session_out = os.path.join(results_dir, "{}_{}_{}_{}_{}_{}.cxs".format(acc, str(segment), experimental_methods, str(resolution), lig_clust_method, lig_clust_dist))
 
-            if override or not os.path.isfile(chimera_script_out) or not os.path.isfile(chX_session_out):
+            if OVERRIDE or not os.path.isfile(chimera_script_out) or not os.path.isfile(chX_session_out):
 
                 write_chimeraX_script(chimera_script_out, simple_dir, os.path.basename(attr_out), os.path.basename(chX_session_out), chimeraX_commands) # this actually needs to be simplified PDBs, not transformed ones ???
 
-            log.info("Chimera attributes and script generated for Segment {} of {}".format(str(segment), acc))
-
-            # if override or not os.path.isfile(chX_session_out):
-
-            #     write_chimeraX_session(chimera_script_out) # this will execute ChimeraX on the command line and generate a session file from the script file
-
-            #     log.info("Chimera session generated for Segment {} of {}".format(str(segment), acc))
-            
+            log.info("Chimera attributes and script generated for Segment {} of {}".format(str(segment), acc))            
 
             ### BINDING SITE MEMBERSHIP PROCESSING
 
@@ -1937,7 +2071,7 @@ if __name__ == '__main__': ### command to run form command line: python3.6 frags
             cluster_ress_out = os.path.join(results_dir, "{}_{}_{}_{}_bss_ress.pkl".format(acc, str(segment), experimental_methods, str(resolution)))
             bs_mm_dict_out = os.path.join(results_dir, "{}_{}_{}_{}_ress_bs_membership.pkl".format(acc, str(segment), experimental_methods, str(resolution)))
                 
-            if override or not os.path.isfile(membership_out):
+            if OVERRIDE or not os.path.isfile(membership_out):
                 membership = get_cluster_membership(cluster_id_dict) # which LBS ligands belong to
                 dump_pickle(membership, membership_out)
                 log.info("Calculated binding site membership")
@@ -1945,7 +2079,7 @@ if __name__ == '__main__': ### command to run form command line: python3.6 frags
                 membership = load_pickle(membership_out)
                 log.debug("Loaded binding site membership")
 
-            if override or not os.path.isfile(cluster_ress_out):
+            if OVERRIDE or not os.path.isfile(cluster_ress_out):
                 cluster_ress = get_all_cluster_ress(membership, lig_fps_filt2_sifted) # residues that form each LBS 
                 dump_pickle(cluster_ress, cluster_ress_out) 
                 log.info("Calculated binding site composition") 
@@ -1953,7 +2087,7 @@ if __name__ == '__main__': ### command to run form command line: python3.6 frags
                 cluster_ress = load_pickle(cluster_ress_out)
                 log.debug("Loaded binding site composition")
 
-            if override or not os.path.isfile(bs_mm_dict_out):
+            if OVERRIDE or not os.path.isfile(bs_mm_dict_out):
                 bs_ress_membership_dict = get_residue_bs_membership(cluster_ress)
                 log.info("Calcualted residue membership")
                 dump_pickle(bs_ress_membership_dict, bs_mm_dict_out)  
@@ -1964,7 +2098,7 @@ if __name__ == '__main__': ### command to run form command line: python3.6 frags
             ### RUNNING DSSP FOR ALL STRUCTURES
 
             master_dssp_out = os.path.join(results_dir, "{}_{}_{}_{}_strs_dssp.pkl".format(acc, str(segment), experimental_methods, str(resolution)))
-            if override or not os.path.isfile(master_dssp_out):
+            if OVERRIDE_DSSP or not os.path.isfile(master_dssp_out):
                 dssp_data = get_dssp_data(unique_pdbs, ASSEMBLY_FOLDER, dssp_dir, CIF_SIFTS_FOLDER, CHAIN_REMAPPING_FOLDER, master_dssp_out)
                 log.info("Obtained DSSP data")
             else:
@@ -1982,7 +2116,7 @@ if __name__ == '__main__': ### command to run form command line: python3.6 frags
                 SS_dict_out = os.path.join(results_dir, "{}_{}_{}_{}_ress_SS.pkl".format(acc, str(segment), experimental_methods, str(resolution)))
                 rsa_profs_out = os.path.join(results_dir, "{}_{}_{}_{}_bss_RSA_profiles.pkl".format(acc, str(segment), experimental_methods, str(resolution)))
 
-                if override or not os.path.isfile(AA_dict_out):
+                if OVERRIDE or not os.path.isfile(AA_dict_out):
                     ress_AA_dict = {
                         up_resnum: dsspd_filt.query('UniProt_ResNum == @up_resnum').AA.mode()[0] # gets dict per UP residue and meore frequent AA.
                         for up_resnum in dsspd_filt.UniProt_ResNum.unique().tolist()
@@ -1993,7 +2127,7 @@ if __name__ == '__main__': ### command to run form command line: python3.6 frags
                     ress_AA_dict = load_pickle(AA_dict_out)
                     log.debug("Loaded residue AA dictionary")
 
-                if override or not os.path.isfile(RSA_dict_out):
+                if OVERRIDE or not os.path.isfile(RSA_dict_out):
                     ress_RSA_dict = {
                         up_resnum: round(dsspd_filt.query('UniProt_ResNum == @up_resnum').RSA.mean(), 2) # gets dict per UP residue and mean RSA.
                         for up_resnum in dsspd_filt.UniProt_ResNum.unique().tolist()
@@ -2004,7 +2138,7 @@ if __name__ == '__main__': ### command to run form command line: python3.6 frags
                     ress_RSA_dict = load_pickle(RSA_dict_out)
                     log.debug("Loaded residue RSA dictionary")
                 
-                if override or not os.path.isfile(SS_dict_out):
+                if OVERRIDE or not os.path.isfile(SS_dict_out):
                     ress_SS_dict = {
                         up_resnum: dsspd_filt.query('UniProt_ResNum == @up_resnum').SS.mode()[0] # gets dict per UP residue and more frequent SS.
                         for up_resnum in dsspd_filt.UniProt_ResNum.unique().tolist()
@@ -2015,7 +2149,7 @@ if __name__ == '__main__': ### command to run form command line: python3.6 frags
                     ress_SS_dict = load_pickle(SS_dict_out)
                     log.debug("Loaded residue SS dictionary")
 
-                if override or not os.path.isfile(rsa_profs_out):
+                if OVERRIDE or not os.path.isfile(rsa_profs_out):
                     rsa_profiles = {}
                     for k, v in cluster_ress.items():
                         rsa_profiles[k] = []
@@ -2057,7 +2191,7 @@ if __name__ == '__main__': ### command to run form command line: python3.6 frags
 
             seq_out = os.path.join(variants_dir, "{}_{}.fasta".format(acc, str(segment)))
 
-            if override_variants or not os.path.isfile(seq_out):
+            if OVERRIDE_VARIANTS or not os.path.isfile(seq_out):
                 best = get_best_from_segment_data(segment_data[segment])
                 best_seq_id = get_best_struct_seq(acc, segment, seq_out, best) # change how we get seq. must be representative of the segment
                 log.info("Generated sequence file")
@@ -2069,7 +2203,7 @@ if __name__ == '__main__': ### command to run form command line: python3.6 frags
             hits_out = os.path.join(variants_dir, "{}_{}.out".format(acc, str(segment)))
             hits_aln = os.path.join(variants_dir, "{}_{}.sto".format(acc, str(segment)))
 
-            if override_variants or not os.path.isfile(hits_out) or not os.path.isfile(hits_aln):
+            if OVERRIDE_VARIANTS or not os.path.isfile(hits_out) or not os.path.isfile(hits_aln):
                 ec, cmd = jackhmmer(seq_out, hits_out, hits_aln, n_it = jackhmmer_n_it, seqdb = swissprot)
                 if ec != 0:
                     log.critical("Jackmmer did not work with command: {}".format(cmd))
@@ -2089,7 +2223,7 @@ if __name__ == '__main__': ### command to run form command line: python3.6 frags
                 log.info("{} sequences were found by jackHMMER for Segment {} of {}".format(str(n_seqs), str(segment), acc))
             hits_aln_rf = os.path.join(variants_dir, "{}_{}_rf.sto".format(acc, str(segment)))
 
-            if override_variants or not os.path.isfile(hits_aln_rf):
+            if OVERRIDE_VARIANTS or not os.path.isfile(hits_aln_rf):
                 add_acc2msa(hits_aln, hits_aln_rf, best_seq_id)
                 log.info("Formatted MSA")
             else:
@@ -2102,7 +2236,7 @@ if __name__ == '__main__': ### command to run form command line: python3.6 frags
 
             prot_cols = prot_cols = get_target_prot_cols(hits_aln, best_seq_id)
             shenkin_out = os.path.join(variants_dir, "{}_{}_rf_shenkin.pkl".format(acc, str(segment)))
-            if override_variants or not os.path.isfile(shenkin_out):
+            if OVERRIDE_VARIANTS or not os.path.isfile(shenkin_out):
                 shenkin = calculate_shenkin(hits_aln_rf, "stockholm", shenkin_out)
                 log.info("Calculated conservation data")
             else:
@@ -2110,7 +2244,7 @@ if __name__ == '__main__': ### command to run form command line: python3.6 frags
                 log.debug("Loaded conservation data")
             
             shenkin_filt_out = os.path.join(variants_dir, "{}_{}_rf_shenkin_filt.pkl".format(acc, str(segment)))
-            if override_variants or not os.path.isfile(shenkin_filt_out):
+            if OVERRIDE_VARIANTS or not os.path.isfile(shenkin_filt_out):
                 shenkin_filt = format_shenkin(shenkin, prot_cols, shenkin_filt_out)
                 log.info("Filtered conservation data")
             else:
@@ -2123,7 +2257,7 @@ if __name__ == '__main__': ### command to run form command line: python3.6 frags
 
             aln_obj = Bio.AlignIO.read(hits_aln_rf, "stockholm") #crashes if target protein is not human!
             aln_info_path = os.path.join(variants_dir, "{}_{}_rf_info_table.p.gz".format(acc, str(segment)))
-            if override_variants or not os.path.isfile(aln_info_path):
+            if OVERRIDE_VARIANTS or not os.path.isfile(aln_info_path):
                 aln_info = varalign.alignments.alignment_info_table(aln_obj)
                 aln_info.to_pickle(aln_info_path)
                 log.info("Generated MSA info table")
@@ -2134,7 +2268,7 @@ if __name__ == '__main__': ### command to run form command line: python3.6 frags
             log.info("There are {} sequences in MSA for Segment {}".format(len(aln_info), str(segment)))
 
             indexed_mapping_path = os.path.join(variants_dir, "{}_{}_rf_mappings.p.gz".format(acc, str(segment)))
-            if override_variants or not os.path.isfile(indexed_mapping_path):
+            if OVERRIDE_VARIANTS or not os.path.isfile(indexed_mapping_path):
                 indexed_mapping_table = varalign.align_variants._mapping_table(aln_info) # now contains all species
                 indexed_mapping_table.to_pickle(indexed_mapping_path) # important for merging later on
                 log.info("Generated MSA mapping table")
@@ -2149,7 +2283,7 @@ if __name__ == '__main__': ### command to run form command line: python3.6 frags
             
                 human_hits_msa = os.path.join(variants_dir, "{}_{}_rf_human.sto".format(acc, str(segment)))
                 
-                if override_variants or not os.path.isfile(human_hits_msa):
+                if OVERRIDE_VARIANTS or not os.path.isfile(human_hits_msa):
                     get_human_subset_msa(hits_aln_rf, human_hits_msa)
                 else:
                     pass
@@ -2159,7 +2293,7 @@ if __name__ == '__main__': ### command to run form command line: python3.6 frags
                 log.debug("ENSEMBL_CACHE SQLite copied correctly")
 
                 variant_table_path = os.path.join(variants_dir, "{}_{}_rf_human_variants.p.gz".format(acc, str(segment)))
-                if override_variants or not os.path.isfile(variant_table_path):
+                if OVERRIDE_VARIANTS or not os.path.isfile(variant_table_path):
                     try:
                         variants_table = varalign.align_variants.align_variants(aln_info_human, path_to_vcf = gnomad_vcf,  include_other_info = False, write_vcf_out = False)     
                     except ValueError as e:
@@ -2187,7 +2321,7 @@ if __name__ == '__main__': ### command to run form command line: python3.6 frags
 
                     miss_df_out = os.path.join(results_dir, "{}_{}_missense_df.pkl".format(acc, str(segment)))
                     
-                    if override or not os.path.isfile(miss_df_out): # we leave it as override and not override_variants to fix the wrong pseudocounts
+                    if OVERRIDE or not os.path.isfile(miss_df_out): # we leave it as OVERRIDE and not OVERRIDE_VARIANTS to fix the wrong pseudocounts
                         missense_variants_df = get_missense_df(
                             hits_aln_rf, human_miss_vars,
                             shenkin_filt, prot_cols, human_miss_vars_msa_out
@@ -2229,7 +2363,7 @@ if __name__ == '__main__': ### command to run form command line: python3.6 frags
                 pass
 
             shenkin_mapped_out = os.path.join(results_dir, "{}_{}_ress_consvar.pkl".format(acc, str(segment)))
-            if override or not os.path.isfile(shenkin_mapped_out): # we leave it as override and not override_variants to fix the wrong pseudocounts
+            if OVERRIDE or not os.path.isfile(shenkin_mapped_out): # we leave it as OVERRIDE and not OVERRIDE_VARIANTS to fix the wrong pseudocounts
                 aln_ids = list(set([seqid[0] for seqid in indexed_mapping_table.index.tolist() if acc in seqid[0]])) # THIS IS EMPTY IF QUERY SEQUENCE IS NOT FOUND
                 n_aln_ids = len(aln_ids)
                 if n_aln_ids != 1:
