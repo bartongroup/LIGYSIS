@@ -72,7 +72,7 @@ wget https://storage.googleapis.com/gcp-public-data--gnomad/release/2.1.1/vcf/ex
 
 For more information, refer to [gnomAD](https://gnomad.broadinstitute.org/).
 
-After downloading gnomAD, it is required to run VEP on it, as VarAlign uses its annotations. Information on how to do so [here](https://www.ensembl.org/info/docs/tools/vep/script/vep_options.html).
+After downloading gnomAD, it is required to run [VEP](https://www.ensembl.org/info/docs/tools/vep/index.html) [[27](https://genomebiology.biomedcentral.com/articles/10.1186/s13059-016-0974-4)] on it, as VarAlign uses its annotations. Information on how to do so [here](https://www.ensembl.org/info/docs/tools/vep/script/vep_options.html).
 
 ## Execution
 
@@ -142,3 +142,6 @@ PMID: 1758884.
 25. Martín Abadi, Ashish Agarwal, Paul Barham, Eugene Brevdo, Zhifeng Chen, Craig Citro, Greg S. Corrado, Andy Davis, Jeffrey Dean, Matthieu Devin, Sanjay Ghemawat, Ian Goodfellow, Andrew Harp, Geoffrey Irving, Michael Isard, Rafal Jozefowicz, Yangqing Jia, Lukasz Kaiser, Manjunath Kudlur, Josh Levenberg, Dan Mané, Mike Schuster, Rajat Monga, Sherry Moore, Derek Murray, Chris Olah, Jonathon Shlens, Benoit Steiner, Ilya Sutskever, Kunal Talwar, Paul Tucker, Vincent Vanhoucke, Vijay Vasudevan, Fernanda Viégas, Oriol Vinyals, Pete Warden, Martin Wattenberg, Martin Wicke, Yuan Yu, and Xiaoqiang Zheng. TensorFlow: Large-scale machine learning on heterogeneous systems, 2015. [Paper here](https://static.googleusercontent.com/media/research.google.com/en//pubs/archive/45166.pdf) Software available from [tensorflow.org](tensorflow.org).
 
 26. Karczewski KJ, Francioli LC, Tiao G, Cummings BB, Alföldi J, Wang Q, Collins RL, Laricchia KM, Ganna A, Birnbaum DP, Gauthier LD, Brand H, Solomonson M, Watts NA, Rhodes D, Singer-Berk M, England EM, Seaby EG, Kosmicki JA, Walters RK, Tashman K, Farjoun Y, Banks E, Poterba T, Wang A, Seed C, Whiffin N, Chong JX, Samocha KE, Pierce-Hoffman E, Zappala Z, O'Donnell-Luria AH, Minikel EV, Weisburd B, Lek M, Ware JS, Vittal C, Armean IM, Bergelson L, Cibulskis K, Connolly KM, Covarrubias M, Donnelly S, Ferriera S, Gabriel S, Gentry J, Gupta N, Jeandet T, Kaplan D, Llanwarne C, Munshi R, Novod S, Petrillo N, Roazen D, Ruano-Rubio V, Saltzman A, Schleicher M, Soto J, Tibbetts K, Tolonen C, Wade G, Talkowski ME; Genome Aggregation Database Consortium; Neale BM, Daly MJ, MacArthur DG. The mutational constraint spectrum quantified from variation in 141,456 humans. Nature. 2020 May;581(7809):434-443. doi: 10.1038/s41586-020-2308-7. Epub 2020 May 27. Erratum in: Nature. 2021 Feb;590(7846):E53. doi: 10.1038/s41586-020-03174-8. Erratum in: Nature. 2021 Sep;597(7874):E3-E4. doi: [10.1038/s41586-021-03758-y](https://www.nature.com/articles/s41586-020-2308-7). PMID: 32461654; PMCID: PMC7334197.
+    
+27. McLaren W, Gil L, Hunt SE, Riat HS, Ritchie GR, Thormann A, Flicek P, Cunningham F. The Ensembl Variant Effect Predictor. Genome Biol. 2016 Jun 6;17(1):122. doi: [10.1186/s13059-016-0974-4](https://genomebiology.biomedcentral.com/articles/10.1186/s13059-016-0974-4). PMID: 27268795; PMCID: PMC4893825.
+ 
