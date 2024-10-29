@@ -543,26 +543,59 @@ def intersection_rel(l1, l2):
 
 ## NEW FINGERPRINTS SECTION
 
-def download_and_move_files(pdb_ids, asymmetric_dir, bio = False):
+# def download_and_move_files(pdb_ids, asymmetric_dir, bio = False, OVERRIDE_PDB = False):
+#     """
+#     Downloads CIF of a series of PDB IDs and moves
+#     them to a given directory.
+#     """
+#     cifs = []
+#     for pdb_id in pdb_ids:
+#         if bio:
+#             cif_in = os.path.join(cfg.db_root, cfg.db_pdbx, "{}_bio.cif".format(pdb_id))
+#             cif_out = os.path.join(asymmetric_dir, "{}_bio.cif".format(pdb_id))
+#         else:
+#             cif_in = os.path.join(cfg.db_root, cfg.db_pdbx, "{}.cif".format(pdb_id))
+#             cif_out = os.path.join(asymmetric_dir, "{}.cif".format(pdb_id))
+#         if os.path.isfile(cif_out):
+#             log.debug("{} already exists!".format(cif_out))
+#         else:
+#             download_structure_from_pdbe(pdb_id, bio = bio)
+#             shutil.move(cif_in, cif_out)
+#         cifs.append(cif_out)
+#     return cifs
+
+def download_and_move_files(pdb_ids, asymmetric_dir, bio=False, OVERRIDE_PDB=False):
     """
     Downloads CIF of a series of PDB IDs and moves
-    them to a given directory.
+    them to a given directory. If OVERRIDE_PDB is True,
+    any existing file will be deleted before the download.
     """
     cifs = []
     for pdb_id in pdb_ids:
-        if bio:
-            cif_in = os.path.join(cfg.db_root, cfg.db_pdbx, "{}_bio.cif".format(pdb_id))
-            cif_out = os.path.join(asymmetric_dir, "{}_bio.cif".format(pdb_id))
-        else:
-            cif_in = os.path.join(cfg.db_root, cfg.db_pdbx, "{}.cif".format(pdb_id))
-            cif_out = os.path.join(asymmetric_dir, "{}.cif".format(pdb_id))
-        if os.path.isfile(cif_out):
-            log.debug("{} already exists!".format(cif_out))
-        else:
-            download_structure_from_pdbe(pdb_id, bio = bio)
+        # Define file names
+        file_suffix = "_bio.cif" if bio else ".cif"
+        cif_in = os.path.join(cfg.db_root, cfg.db_pdbx, f"{pdb_id}{file_suffix}")
+        cif_out = os.path.join(asymmetric_dir, f"{pdb_id}{file_suffix}")
+        
+        # Check if the file exists
+        file_exists = os.path.isfile(cif_out)
+        
+        # If file exists and OVERRIDE_PDB is True, delete the file
+        if file_exists and OVERRIDE_PDB:
+            log.debug(f"{cif_out} exists and will be overridden.")
+            os.remove(cif_out)
+            file_exists = False  # Update existence status after deletion
+        
+        # If the file does not exist, proceed to download and move
+        if not file_exists:
+            download_structure_from_pdbe(pdb_id, bio=bio)
             shutil.move(cif_in, cif_out)
+        else:
+            log.debug(f"{cif_out} already exists!")
+        
         cifs.append(cif_out)
     return cifs
+
 
 def get_SIFTS_from_CIF(cif_df, pdb_id):
     """
@@ -618,6 +651,7 @@ def get_loi_data_from_assembly(assembly_files, biolip_dict, acc):
         ligs_dict[cif_id] = []
         lig_names = biolip_dict[acc][cif_id]
         lig_names = [lig for lig in lig_names if lig not in pdb_resnames] # filtering out protein amino acids LOIs
+        # print(assembly, cif_id)
         cif_df = PDBXreader(inputfile = assembly).atoms(format_type = "mmcif", excluded=())
         for lig in lig_names:
             cif_df.auth_seq_id = cif_df.auth_seq_id.astype(int)
@@ -883,7 +917,8 @@ def get_arpeggio_fingerprints(pdb_ids, assembly_cif_dir, asymmetric_dir, arpeggi
         else:
             log.debug("{} already exists!".format(arpeggio_out))
             pass
-
+        
+        # print(arpeggio_out, os.path.getsize(arpeggio_out))
         arp_df = pd.read_json(arpeggio_out) 
 
         #print(arp_df)
@@ -1025,10 +1060,10 @@ def get_lig2chain_dict(simple_dir):
         ).query(
             'label_comp_id != "HOH"'
         ).drop_duplicates(
-            ["label_comp_id", "auth_asym_id", "label_asym_id", "auth_seq_id"]
+            ["label_comp_id", "auth_asym_id", "label_asym_id", "auth_seq_id_full"]
         ).reset_index(
             drop = True
-        )[["pdb_id", "label_comp_id", "label_asym_id", "auth_asym_id", "auth_seq_id"]]
+        )[["pdb_id", "label_comp_id", "label_asym_id", "auth_asym_id", "auth_seq_id_full"]]
 
         for _, row in ligs_df.iterrows():
             nk = "{}_{}_{}_{}".format(row.pdb_id, row.label_comp_id, row.auth_asym_id, row.auth_seq_id_full) # this has to be auth_asym_id to match with cluster_id_dict_new and ChimeraX. Changing to _FULL
@@ -1667,11 +1702,13 @@ if __name__ == '__main__': ### command to run form command line: python3.6 frags
     parser.add_argument("--override_trans", help = "Override any previously generated files (ONLY TRANSFORMATION).", action = "store_true")
     parser.add_argument("--override_simple", help = "Override any previously generated files (ONLY CIF SIMPLIFICATION).", action = "store_true")
     parser.add_argument("--override_dssp", help = "Override any previously generated files (ONLY DSSP SECTION).", action = "store_true")
+    parser.add_argument("--override_pdb", help = "Override MMCIF ASYM and BIO downloads.", action = "store_true")
 
     args = parser.parse_args()
 
     acc = args.up_acc
     OVERRIDE = args.override
+    OVERRIDE_PDB = args.override_pdb
     OVERRIDE_VARIANTS = args.override_variants
     OVERRIDE_ARPEGGIO = args.override_arpeggio
     OVERRIDE_TRANS = args.override_trans
@@ -1913,7 +1950,7 @@ if __name__ == '__main__': ### command to run form command line: python3.6 frags
             no_mapping_pdbs_out = os.path.join(results_dir, "{}_{}_{}_{}_no_mapping_pdbs.pkl".format(acc, str(segment), experimental_methods, str(resolution))) 
             ######################### NEW FROM 22/01/2024 RESTRUCTURE: USING ARPEGGIO #########################
 
-            assembly_files = download_and_move_files(unique_pdbs, ASSEMBLY_FOLDER, bio = True) # fetching assembly from API using ProIntVar
+            assembly_files = download_and_move_files(unique_pdbs, ASSEMBLY_FOLDER, bio = True, OVERRIDE_PDB = OVERRIDE_PDB) # fetching assembly from API using ProIntVar
 
             ligs_dict_out = os.path.join(results_dir, "{}_{}_{}_{}_ligs_dict.pkl".format(acc, str(segment), experimental_methods, str(resolution)))
             if OVERRIDE or not os.path.isfile(ligs_dict_out):
@@ -1924,7 +1961,7 @@ if __name__ == '__main__': ### command to run form command line: python3.6 frags
                 ligs_dict = load_pickle(ligs_dict_out)
                 log.debug("Ligand data loaded")
 
-            asym_files = download_and_move_files(unique_pdbs, ASYM_FOLDER) # fetching updated CIF from API using ProIntVar. These are actually the ones we want for superposition, so all good.
+            asym_files = download_and_move_files(unique_pdbs, ASYM_FOLDER, OVERRIDE_PDB = OVERRIDE_PDB) # fetching updated CIF from API using ProIntVar. These are actually the ones we want for superposition, so all good.
 
             if OVERRIDE or not os.path.isfile(fps_out) or not os.path.isfile(fps_status_out) or not os.path.isfile(no_mapping_pdbs_out):
 
