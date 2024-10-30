@@ -55,13 +55,6 @@ cd ligysis_custom/ENVS
 conda env create -f DEEP_LEARNING.yml
 ```
 
-### Installation of CLEAN_PDB environment
-
-```
-# install CLEAN_PDB environment
-conda create -n CLEAN_PDB python=2.7.15 biopython=1.74
-```
-
 ## Installation of VarAlign
 
 The following instructions are to install VarAlign. Fore more information refer to the [VarAlign repository](https://github.com/bartongroup/SM_VarAlign/tree/JSU_branch).
