@@ -4,7 +4,7 @@
 import os
 import sys
 import copy
-import gzip
+# import gzip
 import math
 import time
 import scipy
@@ -26,7 +26,7 @@ from Bio.PDB import MMCIFParser
 from Bio.PDB.MMCIF2Dict import MMCIF2Dict
 
 from prointvar.pdbx import PDBXreader, PDBXwriter
-from prointvar.sifts import SIFTSreader
+# from prointvar.sifts import SIFTSreader
 from prointvar.dssp import DSSPrunner, DSSPreader
 from prointvar.config import config as cfg
 from prointvar.fetchers import download_structure_from_pdbe
@@ -901,7 +901,7 @@ def get_arpeggio_fingerprints(pdb_ids, assembly_cif_dir, asymmetric_dir, arpeggi
         ligand_names = list(set([el[0] for el in ligs_dict[pdb_id]]))
 
         # read assembly and check chain number
-        n_chains_assembly = len(PDBXreader(inputfile = assembly_path).atoms(format_type = "mmcif").query('group_PDB == "ATOM"').label_asym_id.unique()) # HARD THRESHOLD. NOT RUNNING ARPEGGIO ON ASSEMBLIES WITH > 50 CHAINS
+        n_chains_assembly = len(PDBXreader(inputfile = assembly_path).atoms(format_type = "mmcif", excluded=()).query('group_PDB == "ATOM"').label_asym_id.unique()) # HARD THRESHOLD. NOT RUNNING ARPEGGIO ON ASSEMBLIES WITH > 50 CHAINS
         if n_chains_assembly > 24:
             log.warning("25 chains or more. NOT RUNNING ARPEGGIO for {}!".format(pdb_id))
             fp_status[pdb_id] = "Many-chains"
