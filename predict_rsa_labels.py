@@ -52,10 +52,10 @@ def main(input_dir):
     This function will add RSA Cluster labels and RSA-based functional scores
     to a summary binding site table dataframe.
     """
-    results_dir = f'./OUT/{input_dir}/results'
-    bss_data_out = os.path.join(results_dir, f'{input_dir}_bss_table.pkl')
-    bss_data_out_RSA = os.path.join(results_dir, f'{input_dir}_bss_RSA_table.pkl')
-    rsa_profs_out = os.path.join(results_dir, f'{input_dir}_bss_RSA_profiles.pkl')
+    results_dir = f'./{input_dir}/results'
+    bss_data_out = os.path.join(results_dir, f'{input_dir}_ALL_inf_bss_table.pkl')
+    bss_data_out_RSA = os.path.join(results_dir, f'{input_dir}_ALL_inf_bss_RSA_table.pkl')
+    rsa_profs_out = os.path.join(results_dir, f'{input_dir}_ALL_inf_bss_RSA_profiles.pkl')
 
     model_path = "./OTHER/RSA_pred_model.h5"
 
