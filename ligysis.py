@@ -50,15 +50,12 @@ config = configparser.ConfigParser()
 config_path = os.path.join(BASE_DIR, "ligysis_config.txt")
 config.read(config_path) # assuming this program is being executed one level above where this script and its config file are located
 
-clean_pdb_bin = config["binaries"].get("clean_pdb_bin")                     # location of clean_pdb.py.
-clean_pdb_python_bin = config["binaries"].get("clean_pdb_python_bin")       # location of python binary to run clean_pdb.py.
-dssp_bin = config["binaries"].get("dssp_bin")                               # location of DSSP binary.
-arpeggio_python_bin = config["binaries"].get("arpeggio_python_bin")         # location of python binary to run pdbe-arpeggio.
-arpeggio_bin = config["binaries"].get("arpeggio_bin")                       # location of pdbe-arpeggio binary.
-biolip_data = config["dbs"].get("biolip_data")                              # location of dictionary containing information about ligands in Biolip.
-ensembl_sqlite_path = config["dbs"].get("ensembl_sqlite")                   # location of a local copy of ENSEMBL mappings from UniProt Accession to genome (sqlite)
-gnomad_vcf = config["dbs"].get("gnomad_vcf")                                # location of gnomAD VCF. This database is not updated.
-swissprot = config["dbs"].get("swissprot")                                  # location of local SwissProt copy. This database is not updated, current version is Nov 2021.
+arpeggio_python_bin = config["paths"].get("arpeggio_python_bin")       # location of python binary to run pdbe-arpeggio.
+arpeggio_bin = config["paths"].get("arpeggio_bin")                     # location of pdbe-arpeggio binary.
+
+ensembl_sqlite_path = config["paths"].get("ensembl_sqlite")            # location of a local copy of ENSEMBL mappings from UniProt Accession to genome (sqlite)
+gnomad_vcf = config["paths"].get("gnomad_vcf")                         # location of gnomAD VCF. This database is not updated.
+swissprot = config["paths"].get("swissprot")                           # location of local SwissProt copy. This database is not updated, current version is Nov 2021.
 
 max_retry = int(config["other"].get("max_retry"))                      # number of maximum attempts to make to retrieve a certain piece of data from PDBe API.
 sleep_time = float(config["other"].get("sleep_time"))                  # time to sleep between queries to the PDBe API.
@@ -66,6 +63,10 @@ sleep_time = float(config["other"].get("sleep_time"))                  # time to
 ### VARIABLES
 
 MSA_fmt = "stockholm"
+
+biolip_data = "./BioLiP.pkl"
+
+headings = ["ID", "RSA", "DS", "MES", "Size", "Cluster", "FS"]
 
 bbone_atoms = ["C", "CA", "N", "O"]
 
@@ -1126,6 +1127,44 @@ def get_residue_bs_membership(cluster_ress):
             if bs_res in v:
                 bs_ress_membership_dict[bs_res].append(k) # which binding site each residue belongs to
     return bs_ress_membership_dict
+
+def get_bss_table(results_df, acc, seg):
+    all_bs_ress = results_df.query('binding_sites == binding_sites').reset_index(drop=True)
+    all_bs_ress = all_bs_ress.explode("binding_sites")
+    all_bs_ress["up_acc"] = acc
+    all_bs_ress["seg_id"] = int(seg)
+    all_bs_ress["bs_id"] = all_bs_ress.up_acc + "_" + all_bs_ress.seg_id.astype(str) + "_" + all_bs_ress.binding_sites.astype(str)
+    all_bs_ress.UniProt_ResNum = all_bs_ress.UniProt_ResNum.astype(int)
+    all_bs_ress["RSA"].values[all_bs_ress["RSA"].values > 100] = 100
+
+    
+    site_ids, site_rsas, site_shenks, site_mess, site_sizes = [[], [], [], [], []]
+    for bs_id, bs_rows in all_bs_ress.groupby("bs_id"):            
+        no_rsa = len(bs_rows.query('RSA != RSA'))
+        no_shenk = len(bs_rows.query('abs_norm_shenkin != abs_norm_shenkin'))
+        no_mes = len(bs_rows.query('oddsratio != oddsratio'))
+
+        bs_rows = bs_rows.drop_duplicates(["binding_sites", "UniProt_ResNum"]) # drop duplicate residues within the binding site
+        site_rsa = round(bs_rows.query('RSA == RSA').RSA.mean(),1)
+        site_shenk = round(bs_rows.query('abs_norm_shenkin == abs_norm_shenkin').abs_norm_shenkin.mean(),1)
+        site_mes = round(bs_rows.query('oddsratio == oddsratio').oddsratio.mean(),2)
+        site_size = len(bs_rows)
+
+        site_ids.append(bs_id.split("_")[-1])
+        site_rsas.append(site_rsa)
+        site_shenks.append(site_shenk)
+        site_mess.append(site_mes)
+        site_sizes.append(site_size)
+
+    bss_data = pd.DataFrame(
+        list(zip(site_ids, site_rsas, site_shenks, site_mess, site_sizes)),
+        columns = ["lab", "RSA", "an_shenk", "MES", "n_ress"]
+    )
+
+    bss_data["Cluster"] = -1 # placeholder for cluster label (need to replace)
+    bss_data["FS"] = -1 # placeholder for functional score (need to replace)
+
+    return all_bs_ress, bss_data
 
 ## DSSP
 
@@ -2326,6 +2365,20 @@ def main(args):
         
             mapped_data["binding_sites"] = mapped_data.UniProt_ResNum.map(bs_ress_membership_dict)
             mapped_data.to_pickle(final_table_out)
+
+            ### generate binding site summary table
+            bss_table_out = os.path.join(results_dir, "{}_{}_{}_{}_bss_table.pkl".format(acc, str(segment), experimental_methods, str(resolution)))
+
+            if OVERRIDE or not os.path.isfile(bss_table_out):
+                _, bss_data = get_bss_table(mapped_data, acc, segment)
+                bss_data = bss_data.fillna("NaN") # pre-processing could also be done before saving the pickle
+                bss_data.columns = headings # changing table column names
+                bss_data["ID"] = bss_data["ID"].astype(int) # converting ID to int
+                bss_data = bss_data.sort_values(by = ["ID"]).reset_index(drop = True) # sorting by ID
+                bss_data.to_pickle(bss_table_out)
+                log.info("Saved binding site summary table")
+            else:
+                pass
 
             log.info("Segment {} of {} finished successfully".format(str(segment), acc))
 

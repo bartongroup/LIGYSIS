@@ -1,18 +1,21 @@
-### FRAGSYS PDBe CONFIG FILE ###
+### LIGYSIS CONFIG FILE ###
 
-[binaries]
-clean_pdb_bin = /cluster/gjb_lab/2394007/pandda_analysis/clean_pdb.py
-clean_pdb_python_bin = /cluster/gjb_lab/2394007/miniconda/envs/arpeggio/bin/python
-dssp_bin = /cluster/gjb_lab/2394007/miniconda/envs/msa/bin/mkdssp
+[paths]
+
+## BINARIES
+
 arpeggio_python_bin = /cluster/gjb_lab/2394007/miniconda/envs/pdbe-arpeggio-env/bin/python
 arpeggio_bin = /cluster/gjb_lab/2394007/miniconda/envs/pdbe-arpeggio-env/bin/pdbe-arpeggio
 
-[dbs]
-biolip_data = ./BioLiP.pkl
+## DATABASES
+
 ensembl_sqlite = /cluster/gjb_lab/2394007/pandda_analysis/phase5/prots/.varalign/ensembl_cache.sqlite
 gnomad_vcf = /homes/smacgowan/NOBACK/resources/gnomad/gnomad.exomes.r2.0.1.sites.vcf.gz
 swissprot = /cluster/gjb_lab/2394007/data/all_species/swissprot_15_09_2023_NR.fasta
 
 [other]
+
 max_retry = 3
 sleep_time = 0.5
+
+### END OF CONFIG FILE ###
