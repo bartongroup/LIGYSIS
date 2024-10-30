@@ -47,15 +47,16 @@ def get_RSA_vectors(rsa_profs_filt):
 
 ###### MAIN FUNCTION
 
-def main(input_dir):
+def main(output_dir, seg_name):
     """
     This function will add RSA Cluster labels and RSA-based functional scores
     to a summary binding site table dataframe.
     """
-    results_dir = f'./{input_dir}/results'
-    bss_data_out = os.path.join(results_dir, f'{input_dir}_ALL_inf_bss_table.pkl')
-    bss_data_out_RSA = os.path.join(results_dir, f'{input_dir}_ALL_inf_bss_RSA_table.pkl')
-    rsa_profs_out = os.path.join(results_dir, f'{input_dir}_ALL_inf_bss_RSA_profiles.pkl')
+    upid, segid = seg_name.split("_")
+    results_dir = f'./{output_dir}/{upid}/{segid}/results'
+    bss_data_out = os.path.join(results_dir, f'{seg_name}_ALL_inf_bss_table.pkl')
+    bss_data_out_RSA = os.path.join(results_dir, f'{seg_name}_ALL_inf_bss_RSA_table.pkl')
+    rsa_profs_out = os.path.join(results_dir, f'{seg_name}_ALL_inf_bss_RSA_profiles.pkl')
 
     model_path = "./OTHER/RSA_pred_model.h5"
 
@@ -96,8 +97,9 @@ def main(input_dir):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='This script predicts RSA cluster labels and calculates RSA-based functional score (FS)')
-    parser.add_argument('input_dir', type=str, help='This is the Input ID or Job ID, i.e., name of the directory where the binding site table resides.')
+    parser.add_argument('output_dir', type=str, help='This is the main output directory, i.e., name of the directory where the different protein outputs are stored.')
+    parser.add_argument('seg_name', type=str, help='This is the Segment name, which is UniProt ID + "_" + Segment ID')
     args = parser.parse_args()
 
-    main(args.input_dir)
+    main(args.output_dir, args.seg_name)
 
