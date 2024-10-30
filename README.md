@@ -46,6 +46,17 @@ Other standard python libraries:
 - [Scikit-learn](https://scikit-learn.org/stable/) [(BSD 3-Clause License)](https://github.com/scikit-learn/scikit-learn/blob/main/COPYING) [[24](https://www.jmlr.org/papers/v12/pedregosa11a.html)]
 - [TensorFlow](https://www.tensorflow.org/) [(Apache v2.0 License)](https://github.com/tensorflow/tensorflow/blob/master/LICENSE) [[25](https://static.googleusercontent.com/media/research.google.com/en//pubs/archive/45166.pdf)]
 
+For more information on the dependencies, refer to the .yml files in the [`ENVS`](ENVS/) directory. To install all the dependencies, refer to the [installation manual](INSTALL.md).
+
+## Environments
+
+The `ENVS` folder contains three `.yml` files describing the necessary packages and dependencies for the different parts of the pipeline and analysis.
+  -  [LIGYSIS](ENVS/LIGYSIS.yml) is needed to run **LIGYSIS**.
+    
+  -  [DEEP_LEARNING](ENVS/DEEP_LEARNING.yml) contains the packages necessary to do predict the RSA Cluster labels and functional scores with [predict_rsa_labels.py](predict_rsa_labels.py).
+
+Note that there are no `.yml` files for the `ARPEGGIO`, `DSSP`, `HMMER` environments, as these are created from the command line without the need of a `.yml` file.
+
 ## Installation
 
 For complete installation instructions refer [here](INSTALL.md).
@@ -89,10 +100,10 @@ The programme has a single mandatory argument. `up_acc` is the corresponding [Un
 To carry out the last step and add the RSA-derived Cluster labels and functional scores, the [predict_rsa_labels.py](predict_rsa_labels.py) needs to be executed on the `DEEP_LEARNING` [environment](ENVS/DEEP_LEARNING.yml). This is how to run it:
 
 ```sh
-python predict_rsa_labels.py output/P00517/1
+python predict_rsa_labels.py output/ P00517_1
 ```
 
-This script only requires a single mandatory argument, which is `output_dir` the name of the output directory. From this `output_dir`, the programme will find the relevant files. In this example, it is `output/P00517/1`. This script will use a [multilayer perceptron model](/OTHER/RSA_pred_model.h5) [[20](https://www.nature.com/articles/s42003-024-05970-8)] to predict RSA-based Cluster labels and functional scores for each defined binding site. 
+This script requires two mandatory argument: `output_dir` the name of the main output directory. This is where the ouput for all submissions will be saved and `seg_name`, which is the name of the segment of interest. Segment names are formed by `UniProt ID + "_" + Segment ID`, for this example it would be: `P00517_1`, corresponding to Segment 1 of P00517. This script will use a [multilayer perceptron model](RSA_pred_model.h5) [[6](https://www.nature.com/articles/s42003-024-05970-8)] to predict RSA-based Cluster labels and functional scores for each defined binding site. 
 
 ## Help and manual
 
@@ -155,6 +166,26 @@ optional arguments:
   --override_pdb        Override MMCIF ASYM and BIO downloads.
 ```
 
+To get help or information about the RSA-label and scores prediction script, run:
+
+```sh
+python predict_rsa_labels.py -h
+```
+
+which will print the manual of the programme:
+
+```
+usage: predict_rsa_labels.py [-h] output_dir seg_name
+
+This script predicts RSA cluster labels and calculates RSA-based functional score (FS)
+
+positional arguments:
+  output_dir  This is the main output directory, i.e., name of the directory where the different protein outputs are stored.
+  seg_name    This is the Segment name, which is UniProt ID + "_" + Segment ID
+
+options:
+  -h, --help  show this help message and exit
+```
 ## Citation
 
 If you use **LIGYSIS** pipeline, please cite:
