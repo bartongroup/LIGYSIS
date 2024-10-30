@@ -76,7 +76,23 @@ After downloading gnomAD, it is required to run [VEP](https://www.ensembl.org/in
 
 ## Execution
 
-XXX
+**LIGYSIS** can be run like this:
+
+```sh
+python ligysis.py P00517
+```
+
+This needs to be done within the `LIGYSIS` [environment](ENVS/LIGYSIS.yml).
+
+The programme has a single mandatory argument. `up_acc` is the corresponding [UniProt](https://www.uniprot.org/) accession identifier of the protein of interest. In this example: [P00517](https://www.uniprot.org/uniprotkb/P00517/entry), which corresponds to bovine cAMP-dependent protein kinase catalytic subunit alpha.
+
+To carry out the last step and add the RSA-derived Cluster labels and functional scores, the [predict_rsa_labels.py](predict_rsa_labels.py) needs to be executed on the `DEEP_LEARNING` [environment](ENVS/DEEP_LEARNING.yml). This is how to run it:
+
+```sh
+python predict_rsa_labels.py output/P00517/1
+```
+
+This script only requires a single mandatory argument, which is `output_dir` the name of the output directory. From this `output_dir`, the programme will find the relevant files. In this example, it is `output/P00517/1`. This script will use a [multilayer perceptron model](/OTHER/RSA_pred_model.h5) [[20](https://www.nature.com/articles/s42003-024-05970-8)] to predict RSA-based Cluster labels and functional scores for each defined binding site. 
 
 ## Help and manual
 
