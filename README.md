@@ -78,6 +78,66 @@ After downloading gnomAD, it is required to run [VEP](https://www.ensembl.org/in
 
 XXX
 
+## Help and manual
+
+To get help or information about the **LIGYSIS** pipeline, run:
+
+```sh
+python ligysis.py -h
+```
+
+which will print the manual of the programme:
+
+```
+usage: ligysis.py [-h] [--resolution RESOLUTION]
+                  [--experimental_methods EXPERIMENTAL_METHODS]
+                  [--clust_method CLUST_METHOD] [--clust_dist CLUST_DIST]
+                  [--hmm_iters HMM_ITERS]
+                  [--cons_thresh_high CONS_THRESH_HIGH]
+                  [--cons_thresh_low CONS_THRESH_LOW]
+                  [--mes_thresh MES_THRESH] [--override] [--override_variants]
+                  [--override_arpeggio] [--override_trans] [--override_simple]
+                  [--override_dssp] [--override_pdb]
+                  up_acc
+
+Clusters ligands and defines binding sites.
+
+positional arguments:
+  up_acc                UniProt accession number of the protein of interest.
+
+optional arguments:
+  -h, --help            show this help message and exit
+  --resolution RESOLUTION
+                        Resolution threshold to consider a structure high-
+                        resolution. Default is inf.
+  --experimental_methods EXPERIMENTAL_METHODS
+                        Experimental method used to determine structures.
+                        Default is 'ALL' for all methods.
+  --clust_method CLUST_METHOD
+                        Ligand clustering method (default: average)
+  --clust_dist CLUST_DIST
+                        Ligand clustering distance threshold (default: 0.50)
+  --hmm_iters HMM_ITERS
+                        Number of iterations for JACKHMMER (default: 3)
+  --cons_thresh_high CONS_THRESH_HIGH
+                        Conservation high threshold (default: 75)
+  --cons_thresh_low CONS_THRESH_LOW
+                        Conservation low threshold (default: 25)
+  --mes_thresh MES_THRESH
+                        MES threshold (default: 1.0)
+  --override            Override any previously generated files.
+  --override_variants   Override any previously generated files (ONLY VARIANTS
+                        SECTION).
+  --override_arpeggio   Override any previously generated files (ONLY ARPEGGIO
+                        RAW SECTION).
+  --override_trans      Override any previously generated files (ONLY
+                        TRANSFORMATION).
+  --override_simple     Override any previously generated files (ONLY CIF
+                        SIMPLIFICATION).
+  --override_dssp       Override any previously generated files (ONLY DSSP
+                        SECTION).
+  --override_pdb        Override MMCIF ASYM and BIO downloads.
+```
 
 ## Citation
 
