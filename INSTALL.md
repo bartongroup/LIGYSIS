@@ -133,10 +133,6 @@ The configuration file can be found [here](ligysis_config.txt). It includes the 
 
 ## BINARIES
 
-stamp_bin = /path/to/stamp.4.4.2/bin/linux/stamp
-transform_bin = /path/to/stamp.4.4.2/bin/linux/transform
-clean_pdb_python_bin = /path/to/miniconda/envs/CLEAN_PDB/bin/python
-clean_pdb_bin = ./clean_pdb.py
 arpeggio_python_bin =/path/to/miniconda/envs/ARPEGGIO/bin/python
 arpeggio_bin = /path/to/miniconda/envs/ARPEGGIO/bin/pdbe-arpeggio
 
@@ -146,9 +142,10 @@ ensembl_sqlite =/path/to/.varalign/ensembl_cache.sqlite              ### WHAT DO
 gnomad_vcf =/path/to/gnomad/gnomad.exomes.r2.0.1.sites.vcf.gz
 swissprot = /path/to/swissprot.fasta
 
-## DIRECTORIES
+[other]
 
-stampdir = /path/to/stamp.4.4.2/defs/
+max_retry = 3
+sleep_time = 0.5
 
 ### END OF CONFIG FILE ###
 ```
@@ -166,7 +163,7 @@ This is how the patch is applied:
 cd /path/to/environments/ARPEGGIO/lib/python3.9/site-packages/
 
 # apply patch
-git apply /path/to/ligysis_custom/OTHER/JSU_patch.diff
+git apply /path/to/LIGYSIS/OTHER/JSU_patch.diff
 ```
 
 This should have commented these 7 lines of code in the `arpeggio/core/interactions.py` file.
