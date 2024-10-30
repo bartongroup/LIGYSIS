@@ -8,7 +8,7 @@ arpeggio_python_bin = /cluster/gjb_lab/2394007/miniconda/envs/pdbe-arpeggio-env/
 arpeggio_bin = /cluster/gjb_lab/2394007/miniconda/envs/pdbe-arpeggio-env/bin/pdbe-arpeggio
 
 [dbs]
-biolip_data = /cluster/gjb_lab/2394007/data/all_species/BioLip_06_09_2023.pkl
+biolip_data = ./BioLiP.pkl
 ensembl_sqlite = /cluster/gjb_lab/2394007/pandda_analysis/phase5/prots/.varalign/ensembl_cache.sqlite
 gnomad_vcf = /homes/smacgowan/NOBACK/resources/gnomad/gnomad.exomes.r2.0.1.sites.vcf.gz
 swissprot = /cluster/gjb_lab/2394007/data/all_species/swissprot_15_09_2023_NR.fasta
