@@ -18,44 +18,13 @@ Installing HMMER on its own environment. Just easier...
 conda create -n HMMER hmmer=3.4
 ```
 
-## Installation of STAMP
-
-The following instructions are to install STAMP. For more information refer to the [STAMP installation instructions](https://www.compbio.dundee.ac.uk/downloads/stamp/INSTALL).
-
-```
-# download STAMP
-curl -O https://www.compbio.dundee.ac.uk/downloads/stamp/stamp.4.4.2.tar.gz
-
-# decompress STAMP
-tar -xzvf stamp.4.4.2.tar.gz
-
-# change directory
-cd stamp.4.4.2
-```
-To install STAMP, run the BUILD script in this directory using:
-```
-# building STAMP
-./BUILD <system-type>
-```
-where \<system-type\> is one of:
-
-- linux
-- osx 
-- dec
-- sgi
-- sun
-
-The executables will be installed in bin/\<system-type\>/.
-
-For more information refer to the [STAMP manual](https://www.compbio.dundee.ac.uk/manuals/stamp.4.4/stamp.html)
-
 ## Installation of LIGYSIS
 
 The first step to install **LIGYSIS** is to Git Clone the repository.
 
 ```
 # git clone LIGYSIS from repository
-git clone -b revamped https://github.com/JavierSanchez-Utges/ligysis_custom.git
+git clone -b running-arpeggio https://github.com/JavierSanchez-Utges/LIGYSIS.git
 ```
 
 ### Installation of pdbe-arpeggio
