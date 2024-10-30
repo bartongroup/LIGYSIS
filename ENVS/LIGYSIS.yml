@@ -1,0 +1,20 @@
+name: LIGYSIS
+dependencies:
+- hmmer=3.4
+- python=3
+- pip
+- biopython
+- matplotlib>=2.0.2,<=2.1.1
+- numpy
+- pandas
+- pickle5
+- pysam
+- requests
+- requests-cache
+- scipy
+- seaborn
+- scikit-learn
+- tqdm
+- pyvcf
+- pip:
+  - proteofav

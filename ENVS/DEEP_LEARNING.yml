@@ -1,0 +1,10 @@
+name: DEEP_LEARNING
+channels:
+  - salilab
+  - conda-forge
+  - bioconda
+dependencies:
+  - numpy=1.23.5
+  - pandas=1.5.2
+  - pickleshare=0.7.5
+  - tensorflow=2.10.0
