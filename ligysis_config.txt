@@ -11,28 +11,8 @@ arpeggio_bin = /cluster/gjb_lab/2394007/miniconda/envs/pdbe-arpeggio-env/bin/pdb
 biolip_data = /cluster/gjb_lab/2394007/data/all_species/BioLip_06_09_2023.pkl
 ensembl_sqlite = /cluster/gjb_lab/2394007/pandda_analysis/phase5/prots/.varalign/ensembl_cache.sqlite
 gnomad_vcf = /homes/smacgowan/NOBACK/resources/gnomad/gnomad.exomes.r2.0.1.sites.vcf.gz
-pdb_db_path = /cluster/gjb_lab/db/NOBACK/mirrors/pdb/data/structures/divided/pdb/
-cif_db_path = /cluster/gjb_lab/db/NOBACK/mirrors/pdb/data/structures/divided/mmCIF
-cif_assembly_db_path = /cluster/gjb_lab/db/NOBACK/mirrors/pdb/data/assemblies/mmCIF/divided
-sifts_db_path = /cluster/gjb_lab/db/NOBACK/local_databases/sifts_current/split_xml/
-sifts_db_path2 = /cluster/gjb_lab/2394007/data/all_species/sifts
 swissprot = /cluster/gjb_lab/2394007/data/all_species/swissprot_15_09_2023_NR.fasta
 
-[formats]
-MSA_fmt = stockholm
-struc_fmt = cif
-
 [other]
-experimental_methods = ALL
-lig_clust_method = average
-lig_clust_metric = i_rel
-
-[thresholds]
-cons_t_h = 75
-cons_t_l = 25
-jackhmmer_n_it = 3
-lig_clust_dist = 0.5
 max_retry = 3
-MES_t = 1.0
 sleep_time = 0.5
-resolution = inf

@@ -4,7 +4,6 @@
 import os
 import sys
 import copy
-# import gzip
 import math
 import time
 import scipy
@@ -26,7 +25,6 @@ from Bio.PDB import MMCIFParser
 from Bio.PDB.MMCIF2Dict import MMCIF2Dict
 
 from prointvar.pdbx import PDBXreader, PDBXwriter
-# from prointvar.sifts import SIFTSreader
 from prointvar.dssp import DSSPrunner, DSSPreader
 from prointvar.config import config as cfg
 from prointvar.fetchers import download_structure_from_pdbe
@@ -54,34 +52,19 @@ config.read(config_path) # assuming this program is being executed one level abo
 clean_pdb_bin = config["binaries"].get("clean_pdb_bin")                     # location of clean_pdb.py.
 clean_pdb_python_bin = config["binaries"].get("clean_pdb_python_bin")       # location of python binary to run clean_pdb.py.
 dssp_bin = config["binaries"].get("dssp_bin")                               # location of DSSP binary.
-arpeggio_python_bin = config["binaries"].get("arpeggio_python_bin")         # location of python binary to run arpeggio.
-arpeggio_bin = config["binaries"].get("arpeggio_bin")                       # location of arpeggio binary.
+arpeggio_python_bin = config["binaries"].get("arpeggio_python_bin")         # location of python binary to run pdbe-arpeggio.
+arpeggio_bin = config["binaries"].get("arpeggio_bin")                       # location of pdbe-arpeggio binary.
 biolip_data = config["dbs"].get("biolip_data")                              # location of dictionary containing information about ligands in Biolip.
 ensembl_sqlite_path = config["dbs"].get("ensembl_sqlite")                   # location of a local copy of ENSEMBL mappings from UniProt Accession to genome (sqlite)
 gnomad_vcf = config["dbs"].get("gnomad_vcf")                                # location of gnomAD VCF. This database is not updated.
-pdb_db_path = config["dbs"].get("pdb_db_path")                              # location of local copy of PDB. This should be updated, but it might be missing some files.
-cif_db_path = config["dbs"].get("cif_db_path")                              # location of local copy of CIF. This should be updated, but it might be missing some files.
-cif_assembly_db_path = config["dbs"].get("cif_assembly_db_path")            # location of local copy of assembly CIF DB. This should be updated, but it might be missing some files.
-sifts_db_path = config["dbs"].get("sifts_db_path")                          # location of a local copy of SIFTS. This database might not be updated, current version is Feb 2023.
-sifts_db_path2 = config["dbs"].get("sifts_db_path2")                        # location of a local backup copy of SIFTS. This database might not be updated, current version is Jul 2023.
-swissprot = config["dbs"].get("swissprot")                                  # location of MY local SwissProt copy. This database is not updated, current version is Nov 2021.
-MSA_fmt = config["formats"].get("MSA_fmt")                                  # MSA format used for all calculations. Currently only working with Stockholm format.
-struc_fmt = config["formats"].get("struc_fmt")                              # structure format used for all calculations. Currently, only working format is PDB.
-experimental_methods = config["other"].get("experimental_methods")          # experimental method used to determine structures. Default is X-ray.
-experimental_methods_list = experimental_methods.split(",")                 # splits string into list of strings.
-lig_clust_method = config["other"].get("lig_clust_method")                  # linkage method used for the hierarchical clustering.
-lig_clust_metric = config["other"].get("lig_clust_metric")                  # similarity metric used defined for ligand binding site definition (later transformed into distance metric).
-cons_t_h = float(config["thresholds"].get("cons_t_h"))                      # conservation score upper threshold to consider position highly divergent. Currently only working with Shenkin divergence score.
-cons_t_l = float(config["thresholds"].get("cons_t_l"))                      # conservation score lower threshold to consider position highly conserved. Currenyly only working with Shenkin divergence score.
-cons_ts = [cons_t_l, cons_t_h]                                              # groups both thresholds into a list.
-jackhmmer_n_it = int(config["thresholds"].get("jackhmmer_n_it"))            # number of iterations to perform on remote-homologue search by jackHMMR
-lig_clust_dist = float(config["thresholds"].get("lig_clust_dist"))          # distance threshold where hierarchical tree is cut for ligand binding site definition.
-MES_t = float(config["thresholds"].get("MES_t"))                            # Missense Enrichment Score threshold to consider a position missense-depleted, or enriched.
-max_retry = int(config["thresholds"].get("max_retry"))                      # number of maximum attempts to make to retrieve a certain piece of data from PDBe API.
-resolution = float(config["thresholds"].get("resolution"))                  # resolution threshold to consider a structure high-resolution.
-sleep_time = float(config["thresholds"].get("sleep_time"))                  # time to sleep between queries to the PDBe API.
+swissprot = config["dbs"].get("swissprot")                                  # location of local SwissProt copy. This database is not updated, current version is Nov 2021.
 
-### LISTS
+max_retry = int(config["other"].get("max_retry"))                      # number of maximum attempts to make to retrieve a certain piece of data from PDBe API.
+sleep_time = float(config["other"].get("sleep_time"))                  # time to sleep between queries to the PDBe API.
+
+### VARIABLES
+
+MSA_fmt = "stockholm"
 
 bbone_atoms = ["C", "CA", "N", "O"]
 
@@ -148,7 +131,6 @@ interaction_to_color = { # following Arpeggio's colour scheme
 
 ## UTILS
 
-# Function to check if a directory is empty
 def is_dir_empty(dir_path):
     return not os.listdir(dir_path) if os.path.exists(dir_path) else True
 
@@ -356,7 +338,7 @@ def apply_transformation(structure, matrix, output_path, chain_id, fmt):
                 # log.info("Number of atoms in chain {} with highest occupancy: {}".format(chain_id, n_high_occ_atoms))
                 io.save(output_path, select = high_occ) # it seems it is MMCIFIO() that is dropping _atom_site.auth_comp_id and _atom_site.auth_atom_id .
 
-def pdb_transform(structure, output_path, matrix_raw, chain_id, fmt = struc_fmt):
+def pdb_transform(structure, output_path, matrix_raw, chain_id, fmt = 'cif'):
     """
     Applies transformation matrix to the PDB file and writes the new PDB to file
     :param pdb_path: path to the input PDB file
@@ -397,7 +379,7 @@ def transform_all_files(pdb_ids, matrices, struct_chains, auth_chains, asymmetri
         trans_cif = os.path.join(trans_dir, "{}_{}_trans{}".format(root, struct_chains[i], ext))
 
         if OVERRIDE_TRANS or not os.path.isfile(trans_cif):
-            structure = parse_pdb_file(asym_cif, struc_fmt) # by parsing structure here, we only parse it once
+            structure = parse_pdb_file(asym_cif, 'cif') # by parsing structure here, we only parse it once
             if structure == None:
                 log.error("{}_{} could not be transformed".format(pdb_id, struct_chains[i]))
                 no_trans.append(pdb_id)
@@ -415,7 +397,7 @@ def transform_all_files(pdb_ids, matrices, struct_chains, auth_chains, asymmetri
                 #print occupancies of chain_cif
                 # print(chain_cif["occupancy"].unique())
 
-                ec = pdb_transform(structure, trans_cif, matrices[i], auth_chains[i], fmt = struc_fmt)
+                ec = pdb_transform(structure, trans_cif, matrices[i], auth_chains[i], fmt = 'cif')
                 if ec == 0:
                     log.info("{}_{} transformed".format(pdb_id, struct_chains[i]))
                 elif ec == 1:
@@ -541,29 +523,6 @@ def intersection_rel(l1, l2):
     I = len(list(set(l1).intersection(l2)))
     return I/I_max
 
-## NEW FINGERPRINTS SECTION
-
-# def download_and_move_files(pdb_ids, asymmetric_dir, bio = False, OVERRIDE_PDB = False):
-#     """
-#     Downloads CIF of a series of PDB IDs and moves
-#     them to a given directory.
-#     """
-#     cifs = []
-#     for pdb_id in pdb_ids:
-#         if bio:
-#             cif_in = os.path.join(cfg.db_root, cfg.db_pdbx, "{}_bio.cif".format(pdb_id))
-#             cif_out = os.path.join(asymmetric_dir, "{}_bio.cif".format(pdb_id))
-#         else:
-#             cif_in = os.path.join(cfg.db_root, cfg.db_pdbx, "{}.cif".format(pdb_id))
-#             cif_out = os.path.join(asymmetric_dir, "{}.cif".format(pdb_id))
-#         if os.path.isfile(cif_out):
-#             log.debug("{} already exists!".format(cif_out))
-#         else:
-#             download_structure_from_pdbe(pdb_id, bio = bio)
-#             shutil.move(cif_in, cif_out)
-#         cifs.append(cif_out)
-#     return cifs
-
 def download_and_move_files(pdb_ids, asymmetric_dir, bio=False, OVERRIDE_PDB=False):
     """
     Downloads CIF of a series of PDB IDs and moves
@@ -595,7 +554,6 @@ def download_and_move_files(pdb_ids, asymmetric_dir, bio=False, OVERRIDE_PDB=Fal
         
         cifs.append(cif_out)
     return cifs
-
 
 def get_SIFTS_from_CIF(cif_df, pdb_id):
     """
@@ -1303,7 +1261,7 @@ def get_best_struct_seq(acc, segment, out, best = None):
         f.write(">{}\n{}\n".format(best_seq_id, best_seq))
     return best_seq_id
 
-def jackhmmer(seq, hits_out, hits_aln, n_it = jackhmmer_n_it, seqdb = swissprot):
+def jackhmmer(seq, hits_out, hits_aln, n_it = 3, seqdb = swissprot):
     """
     Runs jackhmmer on an input seq for a number of iterations and returns exit code, should be 0 if all is ok.
     """
@@ -1542,7 +1500,7 @@ def get_missense_df(aln_in, variants_df, shenkin_aln, prot_cols, aln_out, aln_fm
     else:
         return merged
 
-def add_miss_class(df, miss_df_out = None, cons_col = "shenkin", MES_t = MES_t, cons_ts = cons_ts, colours = consvar_class_colours):
+def add_miss_class(df, miss_df_out = None, cons_col = "shenkin", MES_t = 1.0, cons_ts = [25, 75], colours = consvar_class_colours):
     """
     Adds two columns to missense dataframe. These columns will put columns
     into classes according to their divergence and missense enrichment score.
@@ -1626,87 +1584,31 @@ def get_OR(df, variant_col = "variants"):
         df.loc[i, "se_OR"] = round(se_or, 2)
     return df
 
-### COLORS ###
-
-# This code I did not write, I grabbed it from the following URL:
-
-# https://stackoverflow.com/questions/470690/how-to-automatically-generate-n-distinct-colors
-
-import colorsys
-import itertools
-from fractions import Fraction
-from typing import Iterable, Tuple
-
-def zenos_dichotomy() -> Iterable[Fraction]:
+def main(args):
     """
-    http://en.wikipedia.org/wiki/1/2_%2B_1/4_%2B_1/8_%2B_1/16_%2B_%C2%B7_%C2%B7_%C2%B7
+    Main function of the script. Calls all other functions.
     """
-    for k in itertools.count():
-        yield Fraction(1,2**k)
-
-def fracs() -> Iterable[Fraction]:
-    """
-    [Fraction(0, 1), Fraction(1, 2), Fraction(1, 4), Fraction(3, 4), Fraction(1, 8), Fraction(3, 8), Fraction(5, 8), Fraction(7, 8), Fraction(1, 16), Fraction(3, 16), ...]
-    [0.0, 0.5, 0.25, 0.75, 0.125, 0.375, 0.625, 0.875, 0.0625, 0.1875, ...]
-    """
-    yield Fraction(0)
-    for k in zenos_dichotomy():
-        i = k.denominator # [1,2,4,8,16,...]
-        for j in range(1,i,2):
-            yield Fraction(j,i)
-
-# can be used for the v in hsv to map linear values 0..1 to something that looks equidistant
-# bias = lambda x: (math.sqrt(x/3)/Fraction(2,3)+Fraction(1,3))/Fraction(6,5)
-
-HSVTuple = Tuple[Fraction, Fraction, Fraction]
-RGBTuple = Tuple[float, float, float]
-
-def hue_to_tones(h: Fraction) -> Iterable[HSVTuple]:
-    for s in [Fraction(6,10)]: # optionally use range
-        for v in [Fraction(8,10),Fraction(5,10)]: # could use range too
-            yield (h, s, v) # use bias for v here if you use range
-
-def hsv_to_rgb(x: HSVTuple) -> RGBTuple:
-    return colorsys.hsv_to_rgb(*map(float, x))
-
-flatten = itertools.chain.from_iterable
-
-def hsvs() -> Iterable[HSVTuple]:
-    return flatten(map(hue_to_tones, fracs()))
-
-def rgbs() -> Iterable[RGBTuple]:
-    return map(hsv_to_rgb, hsvs())
-
-def rgb_to_css(x: RGBTuple) -> str:
-    uint8tuple = map(lambda y: int(y*255), x)
-    return "rgb({},{},{})".format(*uint8tuple)
-
-def css_colors() -> Iterable[str]:
-    return map(rgb_to_css, rgbs())
-
-### EXECUTING CODE
-
-if __name__ == '__main__': ### command to run form command line: python3.6 fragsys_pdbe.py acc
 
     ### INITIATING LOGGER
 
     log.info("Logging initiated")
 
-    ### PARSING COMMAND LINE ARGUMENTS
-
-    parser = argparse.ArgumentParser(description = "Clusters ligands and defines binding sites.")
-    parser.add_argument("up_acc", type = str, help = "UniProt accession number of the protein of interest.")
-    parser.add_argument("--override", help = "Override any previously generated files.", action = "store_true")
-    parser.add_argument("--override_variants", help = "Override any previously generated files (ONLY VARIANTS SECTION).", action = "store_true")
-    parser.add_argument("--override_arpeggio", help = "Override any previously generated files (ONLY ARPEGGIO RAW SECTION).", action = "store_true")
-    parser.add_argument("--override_trans", help = "Override any previously generated files (ONLY TRANSFORMATION).", action = "store_true")
-    parser.add_argument("--override_simple", help = "Override any previously generated files (ONLY CIF SIMPLIFICATION).", action = "store_true")
-    parser.add_argument("--override_dssp", help = "Override any previously generated files (ONLY DSSP SECTION).", action = "store_true")
-    parser.add_argument("--override_pdb", help = "Override MMCIF ASYM and BIO downloads.", action = "store_true")
-
-    args = parser.parse_args()
+    for arg, value in sorted(vars(args).items()):
+        log.info("Argument %s: %r", arg, value)
 
     acc = args.up_acc
+    lig_clust_method = args.clust_method
+    lig_clust_dist = args.clust_dist
+    jackhmmer_n_it = args.hmm_iters
+    MES_t = args.mes_thresh
+    resolution = args.resolution
+    experimental_methods = args.experimental_methods
+    experimental_methods_list = experimental_methods.split(",")
+
+    cons_t_low =  args.cons_thresh_low
+    cons_t_high = args.cons_thresh_high
+    cons_ts = [cons_t_low, cons_t_high]
+    
     OVERRIDE = args.override
     OVERRIDE_PDB = args.override_pdb
     OVERRIDE_VARIANTS = args.override_variants
@@ -1714,9 +1616,7 @@ if __name__ == '__main__': ### command to run form command line: python3.6 frags
     OVERRIDE_TRANS = args.override_trans
     OVERRIDE_SIMPLE = args.override_simple
     OVERRIDE_DSSP = args.override_dssp
-
-    for arg, value in sorted(vars(args).items()):
-        log.info("Argument %s: %r", arg, value)
+    
 
     ### RETRIEVES ALL SUPERPOSITION MATRICES FOR PDB IDS IN acc, EXCEPT IF THERE ARE NOT ANY SOLVED STRUCTURES
 
@@ -2438,9 +2338,36 @@ if __name__ == '__main__': ### command to run form command line: python3.6 frags
     log.info("THE END")
 
 
+### EXECUTING CODE
+
+if __name__ == '__main__': ### command to run form command line: python3.6 fragsys_pdbe.py acc
+
+    ### PARSING COMMAND LINE ARGUMENTS
+
+    parser = argparse.ArgumentParser(description = "Clusters ligands and defines binding sites.")
+    parser.add_argument("up_acc", type = str, help = "UniProt accession number of the protein of interest.")
+    parser.add_argument("--resolution", type=float, default=float('inf'), help="Resolution threshold to consider a structure high-resolution. Default is inf.")
+    parser.add_argument("--experimental_methods", type=str, default="ALL", help="Experimental method used to determine structures. Default is 'ALL' for all methods.")
+    parser.add_argument("--clust_method", type=str, default="average", help="Ligand clustering method (default: average)")
+    parser.add_argument("--clust_dist", type=float, default=0.50, help="Ligand clustering distance threshold (default: 0.50)")
+    parser.add_argument("--hmm_iters", type=int, default=3, help="Number of iterations for JACKHMMER (default: 3)")
+    parser.add_argument("--cons_thresh_high", type=int, default=75, help="Conservation high threshold (default: 75)")
+    parser.add_argument("--cons_thresh_low", type=int, default=25, help="Conservation low threshold (default: 25)")
+    parser.add_argument("--mes_thresh", type=float, default=1.0, help="MES threshold (default: 1.0)")
+    parser.add_argument("--override", help = "Override any previously generated files.", action = "store_true")
+    parser.add_argument("--override_variants", help = "Override any previously generated files (ONLY VARIANTS SECTION).", action = "store_true")
+    parser.add_argument("--override_arpeggio", help = "Override any previously generated files (ONLY ARPEGGIO RAW SECTION).", action = "store_true")
+    parser.add_argument("--override_trans", help = "Override any previously generated files (ONLY TRANSFORMATION).", action = "store_true")
+    parser.add_argument("--override_simple", help = "Override any previously generated files (ONLY CIF SIMPLIFICATION).", action = "store_true")
+    parser.add_argument("--override_dssp", help = "Override any previously generated files (ONLY DSSP SECTION).", action = "store_true")
+    parser.add_argument("--override_pdb", help = "Override MMCIF ASYM and BIO downloads.", action = "store_true")
+    args = parser.parse_args()
+
+    
+    main(args)
 
 # /cluster/gjb_lab/2394007/LIGYSIS_PDB
 
 # python3.6 ./../../ligysis.py P0DTD1
 
-# python3.6 ./../../ligysis.py --transform --experimental --variants --override O55234
+# python3.6 ./../../ligysis.py --override O55234
