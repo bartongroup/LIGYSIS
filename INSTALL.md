@@ -138,7 +138,7 @@ arpeggio_bin = /path/to/miniconda/envs/ARPEGGIO/bin/pdbe-arpeggio
 
 ## DATABASES
 
-ensembl_sqlite =/path/to/.varalign/ensembl_cache.sqlite              ### WHAT DO WE DO ABOUT THIS?
+ensembl_sqlite =/path/to/.varalign/ensembl_cache.sqlite
 gnomad_vcf =/path/to/gnomad/gnomad.exomes.r2.0.1.sites.vcf.gz
 swissprot = /path/to/swissprot.fasta
 
